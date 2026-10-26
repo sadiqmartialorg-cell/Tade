@@ -1,0 +1,2 @@
+[functions.adhoc-api]
+verify_jwt = true
