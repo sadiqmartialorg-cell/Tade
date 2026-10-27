@@ -212,6 +212,38 @@ Deno.serve(async (req: Request) => {
       if (error) throw error
       return json(data)
     }
+    if (action === 'my_profile') {
+      await ownProfile()
+      const admin = serviceClient()
+      const { data: profile, error } = await admin.from('adhoc_profiles')
+        .select('id,email,display_name,job_role,job_roles,manager_id')
+        .eq('id', authData.user.id).single()
+      if (error) throw error
+      const [roleResult, managerResult] = await Promise.all([
+        profile.job_role
+          ? admin.from('tade_roles').select('rank').eq('name', profile.job_role).maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        profile.manager_id
+          ? admin.from('adhoc_profiles').select('display_name').eq('id', profile.manager_id).maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+      ])
+      if (roleResult.error) throw roleResult.error
+      if (managerResult.error) throw managerResult.error
+      return json({ ...profile, tier: roleResult.data?.rank ?? null, manager_name: managerResult.data?.display_name ?? null })
+    }
+    if (action === 'reporting_board') {
+      await ownProfile()
+      const admin = serviceClient()
+      const [people, roles] = await Promise.all([
+        admin.from('adhoc_profiles')
+          .select('id,display_name,job_role,manager_id,tree_col,tree_row')
+          .eq('active', true).eq('tree_placed', true).order('display_name'),
+        admin.from('tade_roles').select('name,rank').eq('is_access_role', false),
+      ])
+      if (people.error) throw people.error
+      if (roles.error) throw roles.error
+      return json({ people: people.data, roles: roles.data })
+    }
     if (action === 'list_roles') {
       await assertUserAdmin()
       const { data, error } = await serviceClient().from('tade_roles')
