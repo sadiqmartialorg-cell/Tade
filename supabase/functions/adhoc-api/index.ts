@@ -189,7 +189,7 @@ Deno.serve(async (req: Request) => {
     if (action === 'list_users') {
       await assertUserAdmin()
       const { data, error } = await serviceClient().from('adhoc_profiles')
-        .select('id,email,display_name,job_role,job_roles,manager_id,active').order('display_name')
+        .select('id,email,display_name,job_role,job_roles,manager_id,active,tree_placed,tree_col,tree_row').order('display_name')
       if (error) throw error
       return json(data)
     }
@@ -228,31 +228,55 @@ Deno.serve(async (req: Request) => {
       const id = String(args.id ?? '')
       const displayName = String(args.displayName ?? '').trim()
       const roles = await validRoles(args.roles)
-      const managerId = args.managerId ? String(args.managerId) : null
       if (!displayName || displayName.length > 120) throw new Error('Enter a name of 1–120 characters')
       const { data: people, error: peopleError } = await admin.from('adhoc_profiles')
-        .select('id,manager_id,active,job_roles')
+        .select('id,active,job_roles')
       if (peopleError) throw peopleError
       const target = people?.find(p => p.id === id)
       if (!target) throw new Error('User not found')
       if (id === authData.user.id && target.job_roles?.includes('User Admin') && !roles.includes('User Admin'))
         throw new Error('You cannot remove your own User Admin access')
-      if (managerId) {
-        const byId = new Map((people ?? []).map(p => [p.id, p]))
-        let cursor: string | null = managerId
+      const jobRole = roles.find(r => r !== 'User Admin') ?? null
+      const { data, error } = await admin.from('adhoc_profiles')
+        .update({ display_name: displayName, job_roles: roles, job_role: jobRole })
+        .eq('id', id).select('id,email,display_name,job_role,job_roles,manager_id,active,tree_placed,tree_col,tree_row').single()
+      if (error) throw error
+      return json(data)
+    }
+    if (action === 'place_tree_user') {
+      await assertUserAdmin()
+      const admin = serviceClient()
+      const id = String(args.id ?? '')
+      const parentId = args.parentId ? String(args.parentId) : null
+      const { data: people, error: peopleError } = await admin.from('adhoc_profiles')
+        .select('id,manager_id,active,tree_placed,tree_col,tree_row')
+      if (peopleError) throw peopleError
+      const byId = new Map((people ?? []).map(p => [p.id, p]))
+      const target = byId.get(id)
+      if (!target?.active) throw new Error('Choose an active person')
+      let col: number
+      let row: number
+      if (parentId) {
+        const parent = byId.get(parentId)
+        if (!parent?.active || !parent.tree_placed) throw new Error('Drop onto a person already on the board')
         const seen = new Set<string>()
+        let cursor: string | null = parentId
         while (cursor) {
           if (cursor === id || seen.has(cursor)) throw new Error('Reporting lines cannot form a loop')
           seen.add(cursor)
-          const manager = byId.get(cursor)
-          if (!manager?.active) throw new Error('Choose an active reporting manager')
-          cursor = manager.manager_id
+          cursor = byId.get(cursor)?.manager_id ?? null
         }
+        col = parent.tree_col ?? 0
+        row = Math.min(100, (parent.tree_row ?? 0) + 1)
+      } else {
+        col = Number(args.col)
+        row = Number(args.row)
+        if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || col > 100 || row < 0 || row > 100)
+          throw new Error('Drop onto a valid board square')
       }
-      const jobRole = roles.find(r => r !== 'User Admin') ?? null
       const { data, error } = await admin.from('adhoc_profiles')
-        .update({ display_name: displayName, job_roles: roles, job_role: jobRole, manager_id: managerId })
-        .eq('id', id).select('id,email,display_name,job_role,job_roles,manager_id,active').single()
+        .update({ manager_id: parentId, tree_placed: true, tree_col: col, tree_row: row })
+        .eq('id', id).select('id,manager_id,tree_placed,tree_col,tree_row').single()
       if (error) throw error
       return json(data)
     }
