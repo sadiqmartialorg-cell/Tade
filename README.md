@@ -1,12 +1,12 @@
-# Talview TADE · Adhoc Tracker
+# TADE
 
 Adhoc Tracker is a module inside Talview TADE. The frontend is a static HTML app backed by the separate TADE Supabase project (`edlpujkyxjcubvjdcmle`).
 
-## Deploy on Netlify
+## Deploy on Vercel
 
-Connect this repository to Netlify and use the repository root as the publish directory. `netlify.toml` contains the static publish and single-page fallback configuration. Netlify will deploy each push to the connected branch.
+Connect this repository to a Vercel project. `vercel.json` copies the static app into `dist`, the only directory Vercel publishes. Once GitHub is connected, pushes to the production branch deploy automatically.
 
-After the first deploy, set the Supabase Auth **Site URL** to the Netlify production URL and add that URL to **Redirect URLs**. The browser uses only the Supabase publishable key. Keep service-role/secret keys in Supabase Edge Function secrets; never add them to this repository or Netlify's frontend build environment.
+After the first deploy, set the Supabase Auth **Site URL** to the Vercel production URL and add that URL to **Redirect URLs**. The browser uses only the Supabase publishable key. Keep service-role/secret keys in Supabase Edge Function secrets; never add them to this repository or Vercel's frontend build environment.
 
 ## Supabase setup
 
