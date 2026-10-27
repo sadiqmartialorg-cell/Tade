@@ -70,12 +70,31 @@ Deno.serve(async (req: Request) => {
     }
     const validRoles = async (value: unknown) => {
       const roles = Array.isArray(value) ? value.map(String) : []
-      if (!roles.length || roles.length > 12 || roles.some(r => !r || r.length > 80) || new Set(roles).size !== roles.length)
-        throw new Error('Select one or more distinct roles')
-      const { data, error } = await serviceClient().from('tade_roles').select('name').in('name', roles)
+      const workRoles = roles.filter(r => r !== 'User Admin')
+      if (!roles.length || roles.length > 2 || workRoles.length > 1 || roles.some(r => !r || r.length > 80) || new Set(roles).size !== roles.length)
+        throw new Error('Choose one work role and optionally User Admin, or User Admin alone')
+      const { data, error } = await serviceClient().from('tade_roles').select('name,is_access_role').in('name', roles)
       if (error) throw error
-      if (data?.length !== roles.length) throw new Error('Choose valid TADE roles')
+      if (data?.length !== roles.length || data.some(r => r.is_access_role && r.name !== 'User Admin'))
+        throw new Error('Choose valid TADE roles')
       return roles
+    }
+    const tiers = async () => {
+      const { data, error } = await serviceClient().from('tade_roles').select('name,rank,is_access_role')
+      if (error) throw error
+      return new Map((data ?? []).filter(r => !r.is_access_role).map(r => [r.name, r.rank]))
+    }
+    const assertTreeTiers = (people: Array<{ id: string; manager_id: string | null; job_role: string | null; tree_placed: boolean }>, roleTiers: Map<string, number>) => {
+      const byId = new Map(people.map(p => [p.id, p]))
+      for (const person of people) {
+        if (!person.tree_placed || !person.manager_id) continue
+        const parent = byId.get(person.manager_id)
+        if (!parent?.tree_placed) continue
+        const parentTier = roleTiers.get(parent.job_role ?? '')
+        const childTier = roleTiers.get(person.job_role ?? '')
+        if (parentTier == null || childTier == null || parentTier >= childTier)
+          throw new Error('A direct report must have a lower tier than their parent')
+      }
     }
 
     if (action === 'bootstrap') {
@@ -205,7 +224,7 @@ Deno.serve(async (req: Request) => {
       const name = String(args.name ?? '').trim()
       const rank = Number(args.rank)
       if (name.length < 2 || name.length > 80 || !Number.isInteger(rank) || rank < 1 || rank > 9999)
-        throw new Error('Enter a role name and rank from 1 to 9999')
+        throw new Error('Enter a role name and tier from 1 to 9999')
       const { data, error } = await serviceClient().from('tade_roles')
         .insert({ name, rank, is_access_role: false }).select('name,rank,is_access_role').single()
       if (error) throw error
@@ -215,7 +234,14 @@ Deno.serve(async (req: Request) => {
       await assertUserAdmin()
       const name = String(args.name ?? '')
       const rank = Number(args.rank)
-      if (!Number.isInteger(rank) || rank < 1 || rank > 9999) throw new Error('Rank must be from 1 to 9999')
+      if (!Number.isInteger(rank) || rank < 1 || rank > 9999) throw new Error('Tier must be from 1 to 9999')
+      const roleTiers = await tiers()
+      if (!roleTiers.has(name)) throw new Error('Choose a work role')
+      roleTiers.set(name, rank)
+      const { data: people, error: peopleError } = await serviceClient().from('adhoc_profiles')
+        .select('id,manager_id,job_role,tree_placed')
+      if (peopleError) throw peopleError
+      assertTreeTiers(people ?? [], roleTiers)
       const { data, error } = await serviceClient().from('tade_roles')
         .update({ rank }).eq('name', name).eq('is_access_role', false)
         .select('name,rank,is_access_role').single()
@@ -230,13 +256,14 @@ Deno.serve(async (req: Request) => {
       const roles = await validRoles(args.roles)
       if (!displayName || displayName.length > 120) throw new Error('Enter a name of 1–120 characters')
       const { data: people, error: peopleError } = await admin.from('adhoc_profiles')
-        .select('id,active,job_roles')
+        .select('id,active,job_roles,job_role,manager_id,tree_placed')
       if (peopleError) throw peopleError
       const target = people?.find(p => p.id === id)
       if (!target) throw new Error('User not found')
       if (id === authData.user.id && target.job_roles?.includes('User Admin') && !roles.includes('User Admin'))
         throw new Error('You cannot remove your own User Admin access')
       const jobRole = roles.find(r => r !== 'User Admin') ?? null
+      assertTreeTiers((people ?? []).map(p => p.id === id ? { ...p, job_role: jobRole } : p), await tiers())
       const { data, error } = await admin.from('adhoc_profiles')
         .update({ display_name: displayName, job_roles: roles, job_role: jobRole })
         .eq('id', id).select('id,email,display_name,job_role,job_roles,manager_id,active,tree_placed,tree_col,tree_row').single()
@@ -249,16 +276,25 @@ Deno.serve(async (req: Request) => {
       const id = String(args.id ?? '')
       const parentId = args.parentId ? String(args.parentId) : null
       const { data: people, error: peopleError } = await admin.from('adhoc_profiles')
-        .select('id,manager_id,active,tree_placed,tree_col,tree_row')
+        .select('id,manager_id,active,job_role,tree_placed,tree_col,tree_row')
       if (peopleError) throw peopleError
       const byId = new Map((people ?? []).map(p => [p.id, p]))
       const target = byId.get(id)
       if (!target?.active) throw new Error('Choose an active person')
       let col: number
       let row: number
+      col = Number(args.col)
+      row = Number(args.row)
+      if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || col > 10000 || row < 0 || row > 10000)
+        throw new Error('Drop onto a valid board position')
       if (parentId) {
         const parent = byId.get(parentId)
         if (!parent?.active || !parent.tree_placed) throw new Error('Drop onto a person already on the board')
+        const roleTiers = await tiers()
+        const parentTier = roleTiers.get(parent.job_role ?? '')
+        const childTier = roleTiers.get(target.job_role ?? '')
+        if (parentTier == null || childTier == null || parentTier >= childTier)
+          throw new Error('A direct report must have a lower tier than their parent')
         const seen = new Set<string>()
         let cursor: string | null = parentId
         while (cursor) {
@@ -266,19 +302,26 @@ Deno.serve(async (req: Request) => {
           seen.add(cursor)
           cursor = byId.get(cursor)?.manager_id ?? null
         }
-        col = parent.tree_col ?? 0
-        row = Math.min(100, (parent.tree_row ?? 0) + 1)
-      } else {
-        col = Number(args.col)
-        row = Number(args.row)
-        if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || col > 100 || row < 0 || row > 100)
-          throw new Error('Drop onto a valid board square')
       }
       const { data, error } = await admin.from('adhoc_profiles')
         .update({ manager_id: parentId, tree_placed: true, tree_col: col, tree_row: row })
         .eq('id', id).select('id,manager_id,tree_placed,tree_col,tree_row').single()
       if (error) throw error
       return json(data)
+    }
+    if (action === 'remove_tree_user') {
+      await assertUserAdmin()
+      const admin = serviceClient()
+      const id = String(args.id ?? '')
+      const { data: target, error: targetError } = await admin.from('adhoc_profiles')
+        .select('id,tree_placed').eq('id', id).single()
+      if (targetError || !target?.tree_placed) throw new Error('Choose a person on the board')
+      const { error: childrenError } = await admin.from('adhoc_profiles').update({ manager_id: null }).eq('manager_id', id)
+      if (childrenError) throw childrenError
+      const { error } = await admin.from('adhoc_profiles')
+        .update({ manager_id: null, tree_placed: false, tree_col: null, tree_row: null }).eq('id', id)
+      if (error) throw error
+      return json({ id })
     }
     if (action === 'create_user') {
       await assertUserAdmin()
