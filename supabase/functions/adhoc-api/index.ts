@@ -263,16 +263,9 @@ Deno.serve(async (req: Request) => {
       const password = String(args.password ?? '')
       const roles = await validRoles(args.roles ?? (args.jobRole ? [args.jobRole] : []))
       const jobRole = roles.find(r => r !== 'User Admin') ?? null
-      const managerId = args.managerId ? String(args.managerId) : null
       if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address')
       if (!displayName || displayName.length > 120) throw new Error('Enter a name of 1–120 characters')
       if (password.length < 12 || password.length > 128) throw new Error('Use an initial password of 12–128 characters')
-      if (managerId) {
-        const { data: manager, error } = await serviceClient().from('adhoc_profiles')
-          .select('id').eq('id', managerId).eq('active', true).maybeSingle()
-        if (error) throw error
-        if (!manager) throw new Error('Choose an active reporting manager')
-      }
       const admin = serviceClient()
       const { data: created, error: createError } = await admin.auth.admin.createUser({
         email, password, email_confirm: true, user_metadata: { full_name: displayName },
@@ -281,7 +274,7 @@ Deno.serve(async (req: Request) => {
       if (!created.user) throw new Error('Supabase Auth did not return the created user')
       const { data: profile, error: profileError } = await admin.from('adhoc_profiles').insert({
         id: created.user.id, email, display_name: displayName, job_role: jobRole, job_roles: roles,
-        manager_id: managerId, role: 'employee',
+        manager_id: null, role: 'employee',
       }).select('id,email,display_name,job_role,job_roles,manager_id,active').single()
       if (profileError) {
         const { error: cleanupError } = await admin.auth.admin.deleteUser(created.user.id)

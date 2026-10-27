@@ -1,4 +1,4 @@
-# Adhoc Tracker — Supabase setup
+# TADE — Supabase setup
 
 This folder now contains the first Supabase-backed implementation of the Apps Script tracker.
 
@@ -6,12 +6,12 @@ This folder now contains the first Supabase-backed implementation of the Apps Sc
 
 - `index.html` — browser UI. Uses Supabase Auth for sign-in and invokes `adhoc-api` for app operations. The old mixed-case local URL still opens on case-insensitive macOS filesystems.
 - `supabase/migrations/` — isolated `adhoc_` tables, RLS policies, job roles, and atomic timer/submission RPCs.
-- `supabase/functions/adhoc-api/index.ts` — authenticated Edge Function for bootstrap, runners, settings, user invitations, dashboard, and reporting.
+- `supabase/functions/adhoc-api/index.ts` — authenticated Edge Function for bootstrap, runners, settings, user creation, dashboard, and reporting.
 - `supabase/config.toml` — enables JWT verification for the function.
 
 ## Target project
 
-The Adhoc Tracker module has its own Supabase project in the `talview-Operations` organization. The requested Supabase dashboard project name is **TADE** (the project is currently still named **Adhoc Tracker** in the dashboard):
+TADE has its own Supabase project in the `talview-Operations` organization:
 
 - Project ref: `edlpujkyxjcubvjdcmle`
 - Region: `ap-south-1` (Mumbai)
@@ -30,7 +30,7 @@ supabase db push
 supabase functions deploy adhoc-api
 ```
 
-Most operations use the caller's Authorization header and publishable/anon key, with Postgres RLS enforcing access. The user invitation action also uses a Supabase service-role/secret key from the Edge Function's server-side environment to call the Auth Admin API. Never put that key in `index.html` or any browser code.
+Most operations use the caller's Authorization header and publishable/anon key, with Postgres RLS enforcing access. User creation also uses a Supabase service-role/secret key from the Edge Function's server-side environment to call the Auth Admin API. Never put that key in `index.html` or any browser code.
 
 ## Initial account and configuration
 
@@ -44,13 +44,13 @@ Most operations use the caller's Authorization header and publishable/anon key, 
    where p.id = u.id and lower(u.email) = lower('owner@example.com');
    ```
 
-3. Sign out and back in. The **Settings** and **Users** side-nav entries are shown to app admins. Use **Settings** to add Departments, Customers, and Tasks; active entries immediately populate the Task Builder dropdowns. Inactive entries remain available for historical logs. The main side navigation contains **Work**, **Dashboard**, **Settings**, and **Users** under the **ADHOC TRACKER** app heading, leaving room for additional workspace apps later.
-4. Use **Users** to invite team members by email, assign a job role, and optionally choose a reporting manager. Supabase sends the invitation email.
-5. The job roles are `Manager`, `Senior Team Lead`, `Team Lead`, `Associate Team Lead`, `Management Trainees`, `Reporting Analyst`, `Workforce Coordinator`, `Learning and Development`, `Proctor`, and `Super Proctor`. The internal `admin` role controls settings and invitations; it is separate from the job role and is not selectable in the invitation form.
+3. Use **Adhoc Tracker → Settings** to add Departments, Customers, and Tasks; active entries populate the Task Builder dropdowns. The sidebar contains **Adhoc Tracker** and **Users**. Work, Dashboard, and Settings are tabs inside Adhoc Tracker.
+4. A person with the `User Admin` role can open **Users → User creation** to create a Supabase Auth account with a name, email, one or more roles, and a generated password. No invitation email is sent. A newly created account has no reporting manager. Set or change reporting lines in **Users → User tree**.
+5. The role board starts with `Manager`, `Senior Team Lead`, `Team Lead`, `Associate Team Lead`, `Management Trainees`, `Reporting Analyst`, `Workforce Coordinator`, `Learning and Development`, `Proctor`, `Super Proctor`, and `User Admin`. User Admins can add work roles and change their rank in User tree. `User Admin` grants access to the Users area; an account with only that role does not see Adhoc Tracker. The legacy internal `admin` flag controls Adhoc Tracker settings.
 6. The project's URL and publishable key are configured at the top of `index.html`.
-7. Deploy the repository root on Netlify using the included `netlify.toml`. After Netlify assigns the site URL, set Supabase Auth's Site URL and Redirect URLs to that HTTPS origin so sign-in and invitation links return to the app.
+7. Deploy the repository root on Netlify using the included `netlify.toml`. Set Supabase Auth's Site URL and Redirect URLs to that HTTPS origin.
 
-If the Users page shows an invitation error, verify that the Edge Function has access to the Supabase service role key. That key must remain server-side and must never be copied into `index.html`.
+If user creation fails, verify that the Edge Function has access to the Supabase service role key. That key must remain server-side and must never be copied into `index.html`.
 
 ## Current scope
 
