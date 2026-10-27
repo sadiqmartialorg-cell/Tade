@@ -165,10 +165,12 @@ Deno.serve(async (req: Request) => {
       await assertAdmin()
       const email = String(args.email ?? '').trim().toLowerCase()
       const displayName = String(args.displayName ?? '').trim()
+      const password = String(args.password ?? '')
       const jobRole = String(args.jobRole ?? '')
       const managerId = args.managerId ? String(args.managerId) : null
       if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address')
       if (!displayName || displayName.length > 120) throw new Error('Enter a name of 1–120 characters')
+      if (password.length < 12 || password.length > 128) throw new Error('Use an initial password of 12–128 characters')
       if (!JOB_ROLES.includes(jobRole)) throw new Error('Choose a valid job role')
       if (managerId) {
         const { data: manager, error } = await supabase.from('adhoc_profiles')
@@ -177,20 +179,23 @@ Deno.serve(async (req: Request) => {
         if (!manager) throw new Error('Choose an active reporting manager')
       }
       const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SECRET_KEY') ?? ''
-      if (!serviceKey) throw new Error('User invitations are not configured on this project')
+      if (!serviceKey) throw new Error('Supabase Auth user creation is not configured on this project')
       const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
-      const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-        data: { full_name: displayName },
-        redirectTo: typeof args.redirectTo === 'string' ? args.redirectTo : undefined,
+      const { data: created, error: createError } = await admin.auth.admin.createUser({
+        email, password, email_confirm: true, user_metadata: { full_name: displayName },
       })
-      if (inviteError) throw inviteError
-      if (!invited.user) throw new Error('Supabase Auth did not return the invited user')
+      if (createError) throw createError
+      if (!created.user) throw new Error('Supabase Auth did not return the created user')
       const { data: profile, error: profileError } = await admin.from('adhoc_profiles').insert({
-        id: invited.user.id, email, display_name: displayName, job_role: jobRole,
+        id: created.user.id, email, display_name: displayName, job_role: jobRole,
         manager_id: managerId, role: 'employee',
       }).select('id,email,display_name,job_role,manager_id,active').single()
-      if (profileError) throw profileError
-      return json({ user: profile, invited: true })
+      if (profileError) {
+        const { error: cleanupError } = await admin.auth.admin.deleteUser(created.user.id)
+        if (cleanupError) console.error('Failed to clean up Auth user after profile creation error', cleanupError)
+        throw profileError
+      }
+      return json({ user: profile, invited: false })
     }
     return json({ error: 'Unknown action' }, 400)
   } catch (error) {
