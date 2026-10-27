@@ -205,6 +205,17 @@ Deno.serve(async (req: Request) => {
       if (error) throw error
       return json(data)
     }
+    if (action === 'config_delete_task') {
+      await assertAdmin()
+      const id = String(args.id ?? '')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+        throw new Error('Choose a valid task')
+      const { data, error } = await supabase.from('adhoc_tasks').delete()
+        .eq('id', id).select('id,name').maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error('Task not found or no longer available')
+      return json(data)
+    }
     if (action === 'list_users') {
       await assertUserAdmin()
       const { data, error } = await serviceClient().from('adhoc_profiles')
