@@ -71,8 +71,8 @@ Deno.serve(async (req: Request) => {
     const validRoles = async (value: unknown) => {
       const roles = Array.isArray(value) ? value.map(String) : []
       const workRoles = roles.filter(r => r !== 'User Admin')
-      if (!roles.length || roles.length > 2 || workRoles.length > 1 || roles.some(r => !r || r.length > 80) || new Set(roles).size !== roles.length)
-        throw new Error('Choose one work role and optionally User Admin, or User Admin alone')
+      if (!roles.length || roles.length > 2 || workRoles.length !== 1 || roles.some(r => !r || r.length > 80) || new Set(roles).size !== roles.length)
+        throw new Error('Choose one work role and optionally add User Admin')
       const { data, error } = await serviceClient().from('tade_roles').select('name,is_access_role').in('name', roles)
       if (error) throw error
       if (data?.length !== roles.length || data.some(r => r.is_access_role && r.name !== 'User Admin'))
