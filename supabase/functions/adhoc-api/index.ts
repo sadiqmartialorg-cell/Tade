@@ -223,6 +223,30 @@ Deno.serve(async (req: Request) => {
       if (error) throw error
       return json(data)
     }
+    if (action === 'set_user_active') {
+      await assertUserAdmin()
+      const id = String(args.id ?? '')
+      const active = args.active
+      if (typeof active !== 'boolean') throw new Error('Choose active or inactive status')
+      if (id === authData.user.id && !active) throw new Error('You cannot deactivate your own account')
+      const admin = serviceClient()
+      const { data: target, error: targetError } = await admin.from('adhoc_profiles')
+        .select('id,active').eq('id', id).single()
+      if (targetError || !target) throw new Error('User not found')
+      if (target.active === active) return json(target)
+      const banDuration = active ? 'none' : '876000h'
+      const rollbackDuration = active ? '876000h' : 'none'
+      const { error: authUpdateError } = await admin.auth.admin.updateUserById(id, { ban_duration: banDuration })
+      if (authUpdateError) throw authUpdateError
+      const { data, error } = await admin.from('adhoc_profiles').update({ active })
+        .eq('id', id).select('id,active').single()
+      if (error) {
+        const { error: rollbackError } = await admin.auth.admin.updateUserById(id, { ban_duration: rollbackDuration })
+        if (rollbackError) console.error('Could not restore Auth ban after profile update error', rollbackError)
+        throw error
+      }
+      return json(data)
+    }
     if (action === 'my_profile') {
       await ownProfile()
       const admin = serviceClient()
@@ -351,6 +375,54 @@ Deno.serve(async (req: Request) => {
         .eq('id', id).select('id,manager_id,tree_placed,tree_col,tree_row').single()
       if (error) throw error
       return json(data)
+    }
+    if (action === 'arrange_tree') {
+      await assertUserAdmin()
+      const admin = serviceClient()
+      const { data: people, error } = await admin.from('adhoc_profiles')
+        .select('id,manager_id,tree_col,tree_row,display_name')
+        .eq('active', true).eq('tree_placed', true)
+      if (error) throw error
+      type TreePerson = NonNullable<typeof people>[number]
+      const byId = new Map((people ?? []).map(p => [p.id, p]))
+      const children = new Map<string, TreePerson[]>()
+      const roots: TreePerson[] = []
+      for (const person of people ?? []) {
+        if (person.manager_id && byId.has(person.manager_id)) {
+          const group = children.get(person.manager_id) ?? []
+          group.push(person)
+          children.set(person.manager_id, group)
+        } else roots.push(person)
+      }
+      const sortByPosition = (a: TreePerson, b: TreePerson) =>
+        (a.tree_col ?? 0) - (b.tree_col ?? 0) || a.display_name.localeCompare(b.display_name)
+      roots.sort(sortByPosition)
+      for (const group of children.values()) group.sort(sortByPosition)
+      const arranged: { id: string; col: number; row: number }[] = []
+      const visited = new Set<string>()
+      let nextLeaf = 0
+      const position = (person: TreePerson, depth: number): number => {
+        if (visited.has(person.id)) throw new Error('Reporting board contains a loop')
+        visited.add(person.id)
+        const reports = children.get(person.id) ?? []
+        const centers = reports.map(report => position(report, depth + 1))
+        const center = centers.length ? (centers[0] + centers[centers.length - 1]) / 2 : 130 + nextLeaf++ * 220
+        const col = Math.round(center - 90), row = 40 + depth * 175
+        if (col > 10000 || row > 10000) throw new Error('Board is too large to arrange')
+        arranged.push({ id: person.id, col, row })
+        return center
+      }
+      for (const root of roots) position(root, 0)
+      if (visited.size !== (people ?? []).length) throw new Error('Reporting board contains a loop')
+      for (let start = 0; start < arranged.length; start += 4) {
+        const results = await Promise.all(arranged.slice(start, start + 4).map(item =>
+          admin.from('adhoc_profiles')
+            .update({ tree_col: item.col, tree_row: item.row }).eq('id', item.id)
+        ))
+        const failure = results.find(result => result.error)
+        if (failure?.error) throw failure.error
+      }
+      return json({ positions: arranged })
     }
     if (action === 'remove_tree_user') {
       await assertUserAdmin()
