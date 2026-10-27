@@ -44,7 +44,7 @@ returns jsonb language sql stable security invoker set search_path = '' as $$
   with scoped as materialized (
     select l.* from public.adhoc_logs l
     where l.work_date between p_from and p_to
-      and public.adhoc_can_view_user(l.owner_id)
+      and adhoc_private.adhoc_can_view_user(l.owner_id)
   )
   select jsonb_build_object(
     'totalTasks', (select count(*) from scoped),
