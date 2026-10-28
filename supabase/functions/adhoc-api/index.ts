@@ -57,9 +57,6 @@ Deno.serve(async (req: Request) => {
       if (!data.active) throw new Error('Account is inactive')
       return data
     }
-    const assertAdmin = async () => {
-      if ((await ownProfile()).role !== 'admin') throw new Error('Settings administrator access required')
-    }
     const assertUserAdmin = async () => {
       if (!(await ownProfile()).job_roles?.includes('User Admin')) throw new Error('User Admin access required')
     }
@@ -188,30 +185,31 @@ Deno.serve(async (req: Request) => {
       return json({ departments: departments.data, customers: customers.data, tasks: tasks.data })
     }
     if (action === 'config_add') {
-      await assertAdmin()
+      await assertTracker()
       const table = CONFIG_TABLES[String(args.type)]
       const name = String(args.name ?? '').trim()
       if (!table) throw new Error('Choose a valid settings list')
       if (!name || name.length > 120) throw new Error('Enter a name of 1–120 characters')
-      const { data, error } = await supabase.from(table).insert({ name }).select('id,name,active,sort_order').single()
+      const { data, error } = await serviceClient().from(table).insert({ name }).select('id,name,active,sort_order').single()
       if (error) throw error
       return json(data)
     }
     if (action === 'config_toggle') {
-      await assertAdmin()
+      await assertUserAdmin()
       const table = CONFIG_TABLES[String(args.type)]
       if (!table) throw new Error('Choose a valid settings list')
-      const { data, error } = await supabase.from(table).update({ active: Boolean(args.active) })
+      if (typeof args.active !== 'boolean') throw new Error('Choose active or inactive status')
+      const { data, error } = await serviceClient().from(table).update({ active: args.active })
         .eq('id', args.id).select('id,name,active,sort_order').single()
       if (error) throw error
       return json(data)
     }
     if (action === 'config_delete_task') {
-      await assertAdmin()
+      await assertUserAdmin()
       const id = String(args.id ?? '')
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         throw new Error('Choose a valid task')
-      const { data, error } = await supabase.from('adhoc_tasks').delete()
+      const { data, error } = await serviceClient().from('adhoc_tasks').delete()
         .eq('id', id).select('id,name').maybeSingle()
       if (error) throw error
       if (!data) throw new Error('Task not found or no longer available')
