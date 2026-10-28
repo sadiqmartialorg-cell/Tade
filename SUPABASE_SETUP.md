@@ -48,7 +48,7 @@ Most operations use the caller's Authorization header and publishable/anon key, 
 4. A person with the `User Admin` role can open **Users → User creation** to create a Supabase Auth account with a name, email, one or more roles, and a generated password. No invitation email is sent. A newly created account has no reporting manager. In **Users → User tree**, drag a person from the ranked list onto a grid square to start a tree, or onto another person to make them a direct report. Drag them again to move or reparent them.
 5. The role board starts with `Manager`, `Senior Team Lead`, `Team Lead`, `Associate Team Lead`, `Management Trainees`, `Reporting Analyst`, `Workforce Coordinator`, `Learning and Development`, `Proctor`, `Super Proctor`, and `User Admin`. User Admins can add work roles and change their rank in User tree. `User Admin` grants access to the Users area; an account with only that role does not see Adhoc Tracker. The legacy internal `admin` flag controls Adhoc Tracker settings.
 6. The project's URL and publishable key are configured at the top of `index.html`.
-7. Deploy the repository root on Netlify using the included `netlify.toml`. Set Supabase Auth's Site URL and Redirect URLs to that HTTPS origin.
+7. Deploy the repository root on Vercel using `vercel.json`. Set Supabase Auth's Site URL and an allowed Redirect URL to `https://talview-worklog.vercel.app/`.
 
 If user creation fails, verify that the Edge Function has access to the Supabase service role key. That key must remain server-side and must never be copied into `index.html`.
 

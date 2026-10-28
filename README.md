@@ -4,9 +4,9 @@ Adhoc Tracker is a module inside Talview WorkLog. The frontend is a static HTML 
 
 ## Deploy on Vercel
 
-The live app is at **https://tade-one.vercel.app/**. The Vercel project currently retains the `tade` infrastructure name and is connected to this GitHub repository; pushes to `main` deploy automatically. `vercel.json` copies the static app into `dist`, the only directory Vercel publishes.
+The live app is at **https://talview-worklog.vercel.app/**. The former `https://tade-one.vercel.app/` address redirects there. The Vercel project currently retains the `tade` infrastructure name and is connected to this GitHub repository; pushes to `main` deploy automatically. `vercel.json` copies the static app into `dist`, the only directory Vercel publishes.
 
-The Supabase Auth **Site URL** and an allowed redirect URL are set to `https://tade-one.vercel.app/`. The browser uses only the Supabase publishable key. Keep service-role/secret keys in Supabase Edge Function secrets; never add them to this repository or Vercel's frontend build environment.
+The Supabase Auth **Site URL** and an allowed redirect URL are set to `https://talview-worklog.vercel.app/`. The former URL remains on the redirect allow list for compatibility. The browser uses only the Supabase publishable key. Keep service-role/secret keys in Supabase Edge Function secrets; never add them to this repository or Vercel's frontend build environment.
 
 ## Supabase setup
 
