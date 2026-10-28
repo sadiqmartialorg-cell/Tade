@@ -1,4 +1,4 @@
-# TADE — Supabase setup
+# WorkLog — Supabase setup
 
 This folder now contains the first Supabase-backed implementation of the Apps Script tracker.
 
@@ -11,7 +11,7 @@ This folder now contains the first Supabase-backed implementation of the Apps Sc
 
 ## Target project
 
-TADE has its own Supabase project in the `talview-Operations` organization:
+WorkLog uses its own Supabase project in the `talview-Operations` organization. The project was originally named TADE:
 
 - Project ref: `edlpujkyxjcubvjdcmle`
 - Region: `ap-south-1` (Mumbai)

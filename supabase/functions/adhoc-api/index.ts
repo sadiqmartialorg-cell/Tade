@@ -47,7 +47,7 @@ Deno.serve(async (req: Request) => {
     const args = body.args ?? {}
     const serviceClient = () => {
       const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SECRET_KEY') ?? ''
-      if (!serviceKey) throw new Error('TADE administration is not configured on this project')
+      if (!serviceKey) throw new Error('WorkLog administration is not configured on this project')
       return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
     }
     const ownProfile = async () => {
@@ -73,7 +73,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await serviceClient().from('tade_roles').select('name,is_access_role').in('name', roles)
       if (error) throw error
       if (data?.length !== roles.length || data.some(r => r.is_access_role && r.name !== 'User Admin'))
-        throw new Error('Choose valid TADE roles')
+        throw new Error('Choose valid WorkLog roles')
       return roles
     }
     const tiers = async () => {
