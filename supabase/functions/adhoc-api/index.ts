@@ -178,8 +178,9 @@ Deno.serve(async (req: Request) => {
       })))
     }
     if (action === 'get_settings') {
-      await assertAdmin()
-      const readConfig = (table: string) => supabase.from(table).select('id,name,active,sort_order').order('sort_order').order('name')
+      await assertTracker()
+      const admin = serviceClient()
+      const readConfig = (table: string) => admin.from(table).select('id,name,active,sort_order').order('sort_order').order('name')
       const [departments, customers, tasks] = await Promise.all([
         readConfig(CONFIG_TABLES.departments), readConfig(CONFIG_TABLES.customers), readConfig(CONFIG_TABLES.tasks),
       ])
