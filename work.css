@@ -1,0 +1,41 @@
+/* Compact timer cards for running several tasks at once. */
+#runners.runner-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 9px;
+  align-items: stretch;
+}
+#runners .runner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 11px 12px;
+  background: #fbfcfe;
+}
+#runners .runner[data-state="running"] { border-color: #9bd5b4; background: #fbfffc; }
+#runners .runner-head { gap: 7px; min-width: 0; }
+#runners .runner input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+#runners .runner input:hover, #runners .runner input:focus { border-color: #b9cce3; background: #fff; }
+#runners .badge { flex: none; padding: 3px 7px; font-size: 9px; }
+#runners .clock { margin: 0; font-size: 23px; line-height: 1.1; }
+#runners .runner-meta {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+#runners .runner-actions { flex-wrap: nowrap; gap: 5px; margin-top: auto; }
+#runners .runner-actions button { flex: 1; min-width: 0; padding: 6px 4px; font-size: 10px; white-space: nowrap; }
+#runners .empty { grid-column: 1 / -1; }
