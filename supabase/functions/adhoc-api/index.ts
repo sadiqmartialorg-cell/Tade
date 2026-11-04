@@ -52,10 +52,21 @@ Deno.serve(async (req: Request) => {
     }
     const ownProfile = async () => {
       const { data, error } = await serviceClient().from('adhoc_profiles')
-        .select('id,role,job_roles,active').eq('id', authData.user.id).single()
+        .select('id,role,job_role,job_roles,active').eq('id', authData.user.id).single()
       if (error) throw error
       if (!data.active) throw new Error('Account is inactive')
       return data
+    }
+    const settingsPermissions = async () => {
+      const profile = await ownProfile()
+      const { data: role, error } = await serviceClient().from('tade_roles')
+        .select('rank').eq('name', profile.job_role ?? '').eq('is_access_role', false).maybeSingle()
+      if (error) throw error
+      const tier = role?.rank ?? null
+      return { tier, manage: tier !== null && tier <= 2 }
+    }
+    const assertSettingsManager = async () => {
+      if (!(await settingsPermissions()).manage) throw new Error('Tier 1 or 2 access required')
     }
     const assertUserAdmin = async () => {
       if (!(await ownProfile()).job_roles?.includes('User Admin')) throw new Error('User Admin access required')
@@ -176,26 +187,49 @@ Deno.serve(async (req: Request) => {
     }
     if (action === 'get_settings') {
       await assertTracker()
+      const permissions = await settingsPermissions()
+      if (permissions.tier === null) throw new Error('A work role is required for Settings')
       const admin = serviceClient()
-      const readConfig = (table: string) => admin.from(table).select('id,name,active,sort_order').order('sort_order').order('name')
+      const readConfig = (table: string) => {
+        const query = admin.from(table).select('id,name,active,sort_order').order('sort_order').order('name')
+        return permissions.manage ? query : query.eq('active', true)
+      }
       const [departments, customers, tasks] = await Promise.all([
         readConfig(CONFIG_TABLES.departments), readConfig(CONFIG_TABLES.customers), readConfig(CONFIG_TABLES.tasks),
       ])
       for (const result of [departments, customers, tasks]) if (result.error) throw result.error
-      return json({ departments: departments.data, customers: customers.data, tasks: tasks.data })
+      return json({ departments: departments.data, customers: customers.data, tasks: tasks.data, permissions })
     }
     if (action === 'config_add') {
       await assertTracker()
-      const table = CONFIG_TABLES[String(args.type)]
+      const type = String(args.type)
+      const table = CONFIG_TABLES[type]
       const name = String(args.name ?? '').trim()
       if (!table) throw new Error('Choose a valid settings list')
+      const permissions = await settingsPermissions()
+      if (permissions.tier === null) throw new Error('A work role is required for Settings')
+      if (type !== 'tasks' && !permissions.manage) throw new Error('Tier 1 or 2 access required')
       if (!name || name.length > 120) throw new Error('Enter a name of 1–120 characters')
       const { data, error } = await serviceClient().from(table).insert({ name }).select('id,name,active,sort_order').single()
       if (error) throw error
       return json(data)
     }
+    if (action === 'config_rename') {
+      await assertSettingsManager()
+      const table = CONFIG_TABLES[String(args.type)]
+      const id = String(args.id ?? '')
+      const name = String(args.name ?? '').trim()
+      if (!table) throw new Error('Choose a valid settings list')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error('Choose a valid entry')
+      if (!name || name.length > 120) throw new Error('Enter a name of 1–120 characters')
+      const { data, error } = await serviceClient().from(table).update({ name })
+        .eq('id', id).select('id,name,active,sort_order').maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error('Entry not found')
+      return json(data)
+    }
     if (action === 'config_toggle') {
-      await assertUserAdmin()
+      await assertSettingsManager()
       const table = CONFIG_TABLES[String(args.type)]
       if (!table) throw new Error('Choose a valid settings list')
       if (typeof args.active !== 'boolean') throw new Error('Choose active or inactive status')
@@ -205,7 +239,7 @@ Deno.serve(async (req: Request) => {
       return json(data)
     }
     if (action === 'config_delete_task') {
-      await assertUserAdmin()
+      await assertSettingsManager()
       const id = String(args.id ?? '')
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         throw new Error('Choose a valid task')
