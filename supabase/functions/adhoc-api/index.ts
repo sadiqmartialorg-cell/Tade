@@ -51,7 +51,7 @@ Deno.serve(async (req: Request) => {
       return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
     }
     const ownProfile = async () => {
-      const { data, error } = await supabase.from('adhoc_profiles')
+      const { data, error } = await serviceClient().from('adhoc_profiles')
         .select('id,role,job_roles,active').eq('id', authData.user.id).single()
       if (error) throw error
       if (!data.active) throw new Error('Account is inactive')
