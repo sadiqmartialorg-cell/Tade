@@ -61,9 +61,10 @@
 <section id="userTree" class="view">
   <div class="dashboard-heading"><div><h2>User tree</h2><p class="sub">Build reporting lines on the board. Drop onto a higher-tier person to assign a manager.</p></div></div>
   <section class="panel role-setup"><div class="section-heading"><div><h3>Role setup</h3><p class="hint">Create a role here. Open role order only when you need to change tiers.</p></div></div><form id="roleCreateForm" class="role-add" onsubmit="createBoardRole(event)"><input id="boardRoleName" maxlength="80" placeholder="New role name" required><input id="boardRoleRank" type="number" min="1" max="9999" value="110" aria-label="Tier" required><button>Add role</button></form><details id="roleOrderDetails"><summary>Edit role order</summary><p class="hint">Lower tier numbers are higher in the organization.</p><div id="roleBoard" class="role-board">Loading…</div></details></section>
-  <div class="board-shell">
+  <div id="boardShell" class="board-shell">
     <aside id="peoplePalette" class="panel people-palette" ondragover="allowPaletteDrop(event)" ondragleave="leavePaletteDrop(event)" ondrop="dropTreeOnPalette(event)">
-      <div class="palette-header"><h3>Unplaced people by tier <span id="paletteCount" class="palette-count"></span></h3><p class="hint">Drag a person to the board. Drag a board card back here to remove it.</p></div>
+      <div class="palette-header"><div class="palette-details"><h3>Unplaced people by tier <span id="paletteCount" class="palette-count"></span></h3><p class="hint">Drag a person to the board. Drag a board card back here to remove it.</p></div><button id="paletteCollapseButton" class="palette-toggle" type="button" onclick="togglePeoplePalette()" aria-label="Collapse unplaced people panel" aria-expanded="true" aria-controls="treePeople" title="Collapse panel">‹</button></div>
+      <button id="paletteExpandButton" class="palette-expand" type="button" onclick="togglePeoplePalette()" aria-label="Expand unplaced people panel" aria-expanded="false" aria-controls="treePeople" title="Expand unplaced people panel"><span aria-hidden="true">›</span><span id="collapsedPaletteCount" class="palette-rail-count" aria-live="polite">0</span><span class="palette-rail-label" aria-hidden="true">Unplaced</span></button>
       <div id="treePeople" class="palette-list">Loading…</div><div class="palette-drop-hint">Drop here to remove from board</div>
     </aside>
     <section class="panel tree-board-panel org-board-panel">
@@ -304,6 +305,9 @@ function roleTier(person){return allRoles.find(r=>r.name===person.job_role)?.ran
 function renderPeoplePalette(){
   const people=allUsers.filter(p=>p.active&&!p.tree_placed).sort((a,b)=>roleTier(a)-roleTier(b)||a.display_name.localeCompare(b.display_name));
   $('paletteCount').textContent=people.length;
+  $('collapsedPaletteCount').textContent=people.length;
+  $('peoplePalette').dataset.hasPeople=String(people.length>0);
+  $('paletteExpandButton').setAttribute('aria-label',`Expand unplaced people panel, ${people.length} ${people.length===1?'person':'people'} waiting`);
   let lastTier='';
   $('treePeople').innerHTML=people.map(p=>{
     const tier=roleTier(p),group=Number.isFinite(tier)?`Tier ${tier}`:'Access only';
@@ -311,6 +315,13 @@ function renderPeoplePalette(){
     return heading+`<button type="button" class="palette-person ${selectedBoardId===p.id?'selected':''}" draggable="true" ondragstart="startTreeDrag(event,'${esc(p.id)}')" ondragend="endTreeDrag()" onclick="selectBoardPerson('${esc(p.id)}')"><strong>${esc(p.display_name)}</strong><small>${esc(p.job_role||'User Admin only')}</small><span class="tier-chip">${esc(group)}</span></button>`;
   }).join('')||'<div class="empty">Everyone is on the board.</div>';
 }
+function togglePeoplePalette(){
+  const collapsed=$('boardShell').classList.toggle('palette-collapsed');
+  $('paletteCollapseButton').setAttribute('aria-expanded',String(!collapsed));
+  $('paletteExpandButton').setAttribute('aria-expanded',String(!collapsed));
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)requestAnimationFrame(()=>fitBoard('admin'));
+}
+$('boardShell').addEventListener('transitionend',event=>{if(event.target===$('boardShell')&&event.propertyName==='grid-template-columns'&&$('userTree').classList.contains('active'))fitBoard('admin');});
 function renderTreeBoard(){
   const placed=allUsers.filter(p=>p.active&&p.tree_placed);
   renderBoard('admin',placed,allRoles);
@@ -375,7 +386,7 @@ async function copyCreatedPassword(){try{await navigator.clipboard.writeText($('
 function refreshClocks(){if(document.hidden)return;const byId=new Map(sessions.map(s=>[s.id,s]));for(const el of document.querySelectorAll('[data-clock]')){const s=byId.get(el.dataset.clock);if(s)el.textContent=duration(elapsed(s));}}
 document.addEventListener('visibilitychange',refreshClocks);
 setInterval(refreshClocks,1000);
-Object.assign(window,{signOut,addRunner,renameRunner,timerAction,discardRunner,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,editUser,closeUserEditor,saveUser,toggleUserActive,arrangeTree,setBoardLayoutMode,adjustBoardZoom,fitBoard,toggleBoardCollapse,detachBoardUser,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
+Object.assign(window,{signOut,addRunner,renameRunner,timerAction,discardRunner,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,togglePeoplePalette,editUser,closeUserEditor,saveUser,toggleUserActive,arrangeTree,setBoardLayoutMode,adjustBoardZoom,fitBoard,toggleBoardCollapse,detachBoardUser,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
 generatePassword();
 supabase.auth.onAuthStateChange((_event,session)=>{token=session?.access_token||'';if(!session){$('app').hidden=true;$('login').hidden=false;}});
 init();
