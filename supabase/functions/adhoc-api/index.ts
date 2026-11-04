@@ -428,9 +428,9 @@ Deno.serve(async (req: Request) => {
       const admin = serviceClient()
       const id = String(args.id ?? '')
       const { data: target, error: targetError } = await admin.from('adhoc_profiles')
-        .select('id,tree_placed').eq('id', id).single()
+        .select('id,manager_id,tree_placed').eq('id', id).single()
       if (targetError || !target?.tree_placed) throw new Error('Choose a person on the board')
-      const { error: childrenError } = await admin.from('adhoc_profiles').update({ manager_id: null }).eq('manager_id', id)
+      const { error: childrenError } = await admin.from('adhoc_profiles').update({ manager_id: target.manager_id }).eq('manager_id', id)
       if (childrenError) throw childrenError
       const { error } = await admin.from('adhoc_profiles')
         .update({ manager_id: null, tree_placed: false, tree_col: null, tree_row: null }).eq('id', id)

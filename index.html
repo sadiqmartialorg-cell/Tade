@@ -29,7 +29,7 @@
 .user-status-action p{margin:4px 0 12px;color:var(--muted);font-size:12px}
 .board-tools{display:flex;gap:8px;align-items:center}.board-tools button{white-space:nowrap;font-size:12px;padding:7px 10px}
 .settings-limited .setting-actions{display:none}
-</style></head><body>
+</style><link rel="stylesheet" href="./board.css"></head><body>
 <main id="login" class="panel single login"><h1>Talview WorkLog</h1><p class="sub">Sign in to WorkLog Workspace.</p><form id="loginForm"><div class="field"><label>Email</label><input id="loginEmail" type="email" required autocomplete="username"></div><div class="field"><label>Password</label><input id="loginPassword" type="password" required autocomplete="current-password"></div><button id="loginButton">Sign in</button><div id="loginError" class="error"></div></form></main>
 <main id="app" class="shell app-shell" hidden>
 <aside class="sidebar"><div class="sidebar-brand">WorkLog Workspace</div><nav class="sidebar-nav primary-nav" aria-label="WorkLog modules"><button id="trackerNav" class="nav-button primary-nav-button active" onclick="openTracker()">◉ &nbsp; Adhoc Tracker</button><button id="usersNav" class="nav-button primary-nav-button" onclick="openUsers()">♙ &nbsp; Users</button></nav><div class="sidebar-spacer"></div><div class="sidebar-note">More modules can be added here.</div><div class="side-user"><b id="sideName"></b><span id="sideRole"></span></div><button class="secondary" onclick="signOut()">Sign out</button></aside>
@@ -39,9 +39,52 @@
 <section id="dashboard" class="view"><div class="dashboard-heading"><div><h2>Adhoc performance</h2><p class="sub">A view of logged work for you and your reporting team.</p></div><div class="dashboard-filter"><label for="dashboardRange">Period</label><select id="dashboardRange" onchange="loadDashboard()"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="all">All time</option></select></div></div><div id="dashboardContent" aria-live="polite">Loading…</div></section>
 <section id="settings" class="view"><div class="panel"><h2>Settings</h2><p id="settingsDescription" class="sub">Manage departments, customers, and tasks. Active items appear in the Task Builder dropdowns.</p><div class="settings-grid"><section class="panel setting-card"><h3>Departments</h3><form onsubmit="saveSetting(event,'departments')"><div class="field"><label for="departmentName">Add department</label><input id="departmentName" maxlength="120" required placeholder="Department name"></div><button>Add department</button></form><div id="departmentSettings" class="setting-list"></div></section><section class="panel setting-card"><h3>Customers</h3><form onsubmit="saveSetting(event,'customers')"><div class="field"><label for="customerName">Add customer</label><input id="customerName" maxlength="120" required placeholder="Customer name"></div><button>Add customer</button></form><div id="customerSettings" class="setting-list"></div></section><section class="panel setting-card"><h3>Tasks</h3><form onsubmit="saveSetting(event,'tasks')"><div class="field"><label for="taskName">Add task</label><input id="taskName" maxlength="120" required placeholder="Task name"></div><button>Add task</button></form><div id="taskSettings" class="setting-list"></div></section></div></div></section>
 <section id="profileView" class="view"><div class="dashboard-heading"><div><h2>My profile</h2><p class="sub">Your WorkLog account and reporting details.</p></div></div><div id="profileContent" class="panel profile-card" aria-live="polite">Loading…</div><section class="panel password-panel"><h3>Change password</h3><p class="sub">Enter your current password, then choose a new one for your WorkLog login.</p><form id="changePasswordForm" onsubmit="changePassword(event)"><div class="field"><label for="currentPassword">Current password</label><input id="currentPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="nextPassword">New password</label><input id="nextPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></div><div class="field"><label for="confirmPassword">Confirm new password</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></div><button id="changePasswordButton" type="submit">Update password</button><p id="passwordMessage" class="password-message" role="status" aria-live="polite"></p></form></section></section>
-<section id="reportingView" class="view"><div class="dashboard-heading"><div><h2>Reporting board</h2><p class="sub">View the full reporting structure across WorkLog.</p></div><span id="readOnlyCount" class="board-count"></span></div><section class="panel tree-board-panel"><div class="user-grid-scroll"><div id="readOnlyGrid" class="user-grid readonly-grid"><svg id="readOnlyLines" class="tree-lines" aria-hidden="true"></svg><div id="readOnlyBoard"></div><div id="readOnlyEmpty" class="grid-empty">No one has been placed on the reporting board yet.</div></div></div><p id="readOnlyError" class="error" role="alert"></p></section></section>
+<section id="reportingView" class="view">
+  <div class="dashboard-heading"><div><h2>Reporting board</h2><p class="sub">View the full reporting structure across WorkLog.</p></div></div>
+  <section class="panel tree-board-panel org-board-panel">
+    <div class="section-heading org-board-heading">
+      <div><h3>Reporting board</h3><p class="hint">Hover a person to trace their reporting chain. Drag the background to pan.</p></div>
+      <div class="board-tools">
+        <span id="readOnlyCount" class="board-count"></span>
+        <div class="board-mode" aria-label="Board layout"><button type="button" data-board-mode="horizontal" onclick="setBoardLayoutMode('horizontal')">Horizontal tree</button><button type="button" data-board-mode="compact" onclick="setBoardLayoutMode('compact')">Compact leaves</button></div>
+        <div class="board-zoom" aria-label="Board zoom"><button type="button" onclick="adjustBoardZoom('readonly',-.12)" aria-label="Zoom out">−</button><output id="readOnlyZoom">100%</output><button type="button" onclick="adjustBoardZoom('readonly',.12)" aria-label="Zoom in">+</button><button type="button" onclick="fitBoard('readonly')">Fit</button></div>
+      </div>
+    </div>
+    <div id="readOnlyViewport" class="board-viewport">
+      <div id="readOnlyGrid" class="user-grid readonly-grid board-world"><svg id="readOnlyLines" class="tree-lines" aria-hidden="true"></svg><div id="readOnlyBoard"></div><div id="readOnlyEmpty" class="grid-empty">No one has been placed on the reporting board yet.</div></div>
+      <div class="board-legend"><i></i>Reporting line <span>·</span><i class="hover-line"></i>Hovered chain <span>·</span>Drag to pan · Scroll to move</div>
+    </div>
+    <p id="readOnlyError" class="error" role="alert"></p>
+  </section>
+</section>
 <section id="users" class="view"><div class="panel"><h2>User creation</h2><p class="sub">Create Supabase Auth accounts with a name, email, one work role, and an initial password. User Admin can be added for access to this area. No invitation email is sent.</p><div class="admin-layout"><section class="panel"><h3>Create user</h3><form id="createUserForm"><div class="field"><label for="newUserName">Full name</label><input id="newUserName" maxlength="120" required></div><div class="field"><label for="newUserEmail">Work email</label><input id="newUserEmail" type="email" required autocomplete="off"></div><div class="field"><label for="newUserPassword">Initial password</label><div class="password-row"><input id="newUserPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="togglePasswordButton" type="button" class="secondary" onclick="togglePasswordVisibility()">Show</button><button type="button" class="secondary" onclick="generatePassword()">Generate</button><button type="button" class="secondary" onclick="copyInitialPassword()">Copy</button></div><p class="hint">A strong password is generated for you. Share it with the user securely.</p></div><div class="field"><label for="newUserRole">Work role</label><select id="newUserRole" required></select></div><label class="admin-toggle"><input id="newUserAdmin" type="checkbox"> User Admin access</label><p class="hint">Choose one work role. User Admin is an optional add-on.</p><button id="createUserButton">Create user</button><div id="userFormError" class="error"></div><div id="userCreated" class="success-card" hidden><strong>Account created for <span id="createdUserEmail"></span></strong><p>Initial password: <code id="createdUserPassword"></code></p><button type="button" class="secondary" onclick="copyCreatedPassword()">Copy password</button><p class="hint">Share this password securely. It will disappear when you leave this page.</p></div></form></section><section class="panel"><h3>Team users</h3><div id="userList" class="scroll">Loading…</div></section></div><section class="panel user-editor" id="userEditor" hidden><div class="section-heading"><div><h3>Edit user</h3><p class="sub" id="editUserEmail"></p></div><button type="button" class="secondary" onclick="closeUserEditor()">Close</button></div><form id="editUserForm" onsubmit="saveUser(event)"><div class="field"><label for="editUserName">Name</label><input id="editUserName" maxlength="120" required></div><div class="field"><label for="editUserRole">Work role</label><select id="editUserRole" required></select></div><label class="admin-toggle"><input id="editUserAdmin" type="checkbox"> User Admin access</label><div class="form-actions"><button>Save changes</button><button type="button" class="secondary" onclick="closeUserEditor()">Cancel</button></div><div id="editUserError" class="error"></div></form><div class="user-status-action"><strong id="editUserStatusTitle"></strong><p id="editUserStatusHelp"></p><button id="editUserStatusButton" type="button" onclick="toggleUserActive()"></button></div></section></div></section>
-<section id="userTree" class="view"><div class="dashboard-heading"><div><h2>User tree</h2><p class="sub">Place people freely on the board. Drop onto a higher-tier person to create a reporting line.</p></div></div><section class="panel role-setup"><div class="section-heading"><div><h3>Role setup</h3><p class="hint">Create a role here. Open role order only when you need to change tiers.</p></div></div><form id="roleCreateForm" class="role-add" onsubmit="createBoardRole(event)"><input id="boardRoleName" maxlength="80" placeholder="New role name" required><input id="boardRoleRank" type="number" min="1" max="9999" value="110" aria-label="Tier" required><button>Add role</button></form><details id="roleOrderDetails"><summary>Edit role order</summary><p class="hint">Lower tier numbers are higher in the organization.</p><div id="roleBoard" class="role-board">Loading…</div></details></section><div class="board-shell"><aside id="peoplePalette" class="panel people-palette" ondragover="allowPaletteDrop(event)" ondragleave="leavePaletteDrop(event)" ondrop="dropTreeOnPalette(event)"><h3>Unplaced people by tier</h3><p class="hint">Drag a person to the board. Drag a board card back here to remove it.</p><div id="treePeople">Loading…</div><div class="palette-drop-hint">Drop here to remove from board</div></aside><section class="panel tree-board-panel"><div class="section-heading"><div><h3>Reporting board</h3><p class="hint">Drop on the canvas to place or detach. Drop on a highlighted parent to create a reporting line.</p></div><div class="board-tools"><span id="boardCount" class="board-count"></span><button id="arrangeBoardButton" type="button" class="secondary" onclick="arrangeTree()">Arrange by reporting</button></div></div><div class="user-grid-scroll"><div id="userGrid" class="user-grid" ondragover="allowTreeDrop(event)" ondrop="dropTreeOnGrid(event)" onclick="clickTreeGrid(event)"><svg id="treeLines" class="tree-lines" aria-hidden="true"></svg><div id="treeBoard"></div><div id="gridEmpty" class="grid-empty">Drop the first person anywhere on the board.</div></div></div><p id="boardError" class="error" role="alert"></p></section></div></section>
+<section id="userTree" class="view">
+  <div class="dashboard-heading"><div><h2>User tree</h2><p class="sub">Build reporting lines on the board. Drop onto a higher-tier person to assign a manager.</p></div></div>
+  <section class="panel role-setup"><div class="section-heading"><div><h3>Role setup</h3><p class="hint">Create a role here. Open role order only when you need to change tiers.</p></div></div><form id="roleCreateForm" class="role-add" onsubmit="createBoardRole(event)"><input id="boardRoleName" maxlength="80" placeholder="New role name" required><input id="boardRoleRank" type="number" min="1" max="9999" value="110" aria-label="Tier" required><button>Add role</button></form><details id="roleOrderDetails"><summary>Edit role order</summary><p class="hint">Lower tier numbers are higher in the organization.</p><div id="roleBoard" class="role-board">Loading…</div></details></section>
+  <div class="board-shell">
+    <aside id="peoplePalette" class="panel people-palette" ondragover="allowPaletteDrop(event)" ondragleave="leavePaletteDrop(event)" ondrop="dropTreeOnPalette(event)">
+      <div class="palette-header"><h3>Unplaced people by tier <span id="paletteCount" class="palette-count"></span></h3><p class="hint">Drag a person to the board. Drag a board card back here to remove it.</p></div>
+      <div id="treePeople" class="palette-list">Loading…</div><div class="palette-drop-hint">Drop here to remove from board</div>
+    </aside>
+    <section class="panel tree-board-panel org-board-panel">
+      <div class="section-heading org-board-heading">
+        <div><h3>Reporting board</h3><p class="hint">Drop on the canvas for top level, or on a highlighted card to assign a manager. Hover to trace a reporting chain.</p></div>
+        <div class="board-tools">
+          <span id="boardCount" class="board-count"></span>
+          <div class="board-mode" aria-label="Board layout"><button type="button" data-board-mode="horizontal" onclick="setBoardLayoutMode('horizontal')">Horizontal tree</button><button type="button" data-board-mode="compact" onclick="setBoardLayoutMode('compact')">Compact leaves</button></div>
+          <div class="board-zoom" aria-label="Board zoom"><button type="button" onclick="adjustBoardZoom('admin',-.12)" aria-label="Zoom out">−</button><output id="adminZoom">100%</output><button type="button" onclick="adjustBoardZoom('admin',.12)" aria-label="Zoom in">+</button><button type="button" onclick="fitBoard('admin')">Fit</button></div>
+          <button id="arrangeBoardButton" type="button" class="secondary arrange-button" onclick="arrangeTree()">Arrange by reporting</button>
+        </div>
+      </div>
+      <div id="adminViewport" class="board-viewport">
+        <div id="userGrid" class="user-grid board-world"><svg id="treeLines" class="tree-lines" aria-hidden="true"></svg><div id="treeBoard"></div><div id="gridEmpty" class="grid-empty">Drag the first person onto this board.</div></div>
+        <div id="boardDropBanner" class="board-drop-banner" hidden>Drop on a card to assign its manager, or on the grid for top level</div>
+        <div class="board-legend"><i></i>Reporting line <span>·</span><i class="hover-line"></i>Hovered chain <span>·</span>Drag to pan · Scroll to move</div>
+      </div>
+      <p id="boardError" class="error" role="alert"></p>
+    </section>
+  </div>
+</section>
 </div></main><div id="toast" class="toast"></div>
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
@@ -105,10 +148,147 @@ async function changePassword(event){
   finally{current.value='';button.disabled=false;button.textContent='Update password';}
 }
 async function loadProfile(){showView('profileView',$('profileTab'));$('profileContent').textContent='Loading…';try{const p=await api('my_profile');const initials=(p.display_name||'?').trim().charAt(0).toUpperCase();$('profileContent').innerHTML=`<div class="profile-header"><span class="profile-avatar" aria-hidden="true">${esc(initials)}</span><div><strong>${esc(p.display_name)}</strong><small>${esc(p.job_role||'No work role')}${p.tier!=null?' · Tier '+esc(p.tier):''}</small></div></div><dl class="profile-facts"><div><dt>Email</dt><dd>${esc(p.email||'—')}</dd></div><div><dt>Work role</dt><dd>${esc(p.job_role||'—')}</dd></div><div><dt>Tier</dt><dd>${p.tier==null?'—':esc(p.tier)}</dd></div><div><dt>Reports to</dt><dd>${esc(p.manager_name||'—')}</dd></div><div><dt>Users access</dt><dd>${(p.job_roles||[]).includes('User Admin')?'User Admin':'Profile and reporting board'}</dd></div></dl>`;}catch(e){$('profileContent').textContent=e.message;}}
-function focusBoardRoot(gridId,placed){const byId=new Set(placed.map(p=>p.id)),root=placed.find(p=>!p.manager_id||!byId.has(p.manager_id));if(!root)return;const scroll=$(gridId).parentElement;scroll.scrollLeft=Math.max(0,(root.tree_col??0)+90-scroll.clientWidth/2);scroll.scrollTop=0;}
-function boardConnections(placed){const byId=new Map(placed.map(p=>[p.id,p]));return placed.filter(p=>p.manager_id&&byId.has(p.manager_id)).map(p=>{const parent=byId.get(p.manager_id),x1=(parent.tree_col??0)+90,y1=(parent.tree_row??0)+100,x2=(p.tree_col??0)+90,y2=p.tree_row??0,gap=y2-y1;const d=gap>30?`M${x1} ${y1} V${y1+Math.min(34,gap/2)} H${x2} V${y2}`:`M${x1} ${y1} C${x1} ${y1+70} ${x2} ${y2-70} ${x2} ${y2}`;return `<path d="${d}"/><circle cx="${x2}" cy="${y2}" r="4"/>`;}).join('');}
-function renderReadOnlyBoard(data){const placed=data.people||[],byId=new Map(placed.map(p=>[p.id,p])),tiers=new Map((data.roles||[]).map(r=>[r.name,r.rank]));let maxX=1600,maxY=900;for(const p of placed){maxX=Math.max(maxX,(p.tree_col??0)+360);maxY=Math.max(maxY,(p.tree_row??0)+220);}const grid=$('readOnlyGrid');grid.style.width=maxX+'px';grid.style.height=maxY+'px';$('readOnlyLines').setAttribute('viewBox',`0 0 ${maxX} ${maxY}`);$('readOnlyLines').innerHTML=boardConnections(placed);$('readOnlyBoard').innerHTML=placed.map(p=>`<div class="tree-canvas-card" style="left:${p.tree_col??0}px;top:${p.tree_row??0}px"><strong>${esc(p.display_name)}</strong><small>${esc(p.job_role||'No work role')}</small><div class="reports-to">${p.manager_id?(byId.has(p.manager_id)?'Reports to '+esc(byId.get(p.manager_id).display_name):'Reports to inactive user'):'Top level'}</div><div class="card-actions"><span class="tier-chip">${tiers.has(p.job_role)?'Tier '+esc(tiers.get(p.job_role)):'—'}</span></div></div>`).join('');$('readOnlyEmpty').hidden=placed.length>0;$('readOnlyCount').textContent=`${placed.length} people on board`;}
-async function loadReportingBoard(){showView('reportingView',$('reportingTab'));$('readOnlyBoard').textContent='';$('readOnlyCount').textContent='Loading…';$('readOnlyError').textContent='';try{const board=await api('reporting_board');renderReadOnlyBoard(board);focusBoardRoot('readOnlyGrid',board.people||[]);}catch(e){$('readOnlyCount').textContent='';$('readOnlyError').textContent=e.message;}}
+const BOARD_CARD_WIDTH=204,BOARD_CARD_HEIGHT=122,BOARD_SIBLING_GAP=28,BOARD_COUSIN_GAP=64,BOARD_LEVEL_GAP=92;
+let boardLayoutMode='horizontal',reportingBoardData=null,boardHoverKind=null,boardHoverId=null;
+const boardCollapsed=new Set(),boardLayouts={admin:null,readonly:null};
+const boardViews={admin:{scale:1,panX:20,panY:20,ready:false,panning:false},readonly:{scale:1,panX:20,panY:20,ready:false,panning:false}};
+function boardIds(kind){return kind==='admin'?{viewport:'adminViewport',world:'userGrid',layer:'treeBoard',lines:'treeLines',empty:'gridEmpty',zoom:'adminZoom'}:{viewport:'readOnlyViewport',world:'readOnlyGrid',layer:'readOnlyBoard',lines:'readOnlyLines',empty:'readOnlyEmpty',zoom:'readOnlyZoom'};}
+function computeBoardLayout(people){
+  const byId=new Map(people.map(p=>[p.id,p])),parents=new Map(),children=new Map();
+  for(const p of people){
+    let cursor=p.manager_id,valid=!!cursor&&byId.has(cursor),seen=new Set([p.id]);
+    while(valid&&cursor){if(seen.has(cursor)){valid=false;break;}seen.add(cursor);cursor=byId.get(cursor)?.manager_id;valid=!!cursor&&byId.has(cursor);}
+    const parentId=valid===false&&cursor&&seen.has(cursor)?null:(p.manager_id&&byId.has(p.manager_id)?p.manager_id:null);
+    parents.set(p.id,parentId);
+  }
+  for(const p of people){const parentId=parents.get(p.id);if(!parentId)continue;const group=children.get(parentId)||[];group.push(p);children.set(parentId,group);}
+  const ordered=(a,b)=>(a.tree_col??0)-(b.tree_col??0)||a.display_name.localeCompare(b.display_name);
+  for(const group of children.values())group.sort(ordered);
+  const roots=people.filter(p=>!parents.get(p.id)).sort(ordered),widths=new Map(),compactIds=new Set(),positions=new Map();
+  const direct=p=>children.get(p.id)||[];
+  const compact=p=>boardLayoutMode==='compact'&&!boardCollapsed.has(p.id)&&direct(p).length>=3&&direct(p).every(c=>!direct(c).length||boardCollapsed.has(c.id));
+  function measure(node){
+    if(boardCollapsed.has(node.id)||!direct(node).length){widths.set(node.id,BOARD_CARD_WIDTH);return BOARD_CARD_WIDTH;}
+    if(compact(node)){compactIds.add(node.id);widths.set(node.id,BOARD_CARD_WIDTH+36);return BOARD_CARD_WIDTH+36;}
+    let width=0;const kids=direct(node);
+    kids.forEach((child,i)=>{width+=measure(child);if(i<kids.length-1)width+=((direct(child).length||direct(kids[i+1]).length)?BOARD_COUSIN_GAP:BOARD_SIBLING_GAP);});
+    width=Math.max(BOARD_CARD_WIDTH,width);widths.set(node.id,width);return width;
+  }
+  function place(node,left,top){
+    const kids=direct(node),width=widths.get(node.id)||BOARD_CARD_WIDTH;
+    if(boardCollapsed.has(node.id)||!kids.length){positions.set(node.id,{x:left+(width-BOARD_CARD_WIDTH)/2,y:top});return;}
+    if(compactIds.has(node.id)){
+      positions.set(node.id,{x:left,y:top});
+      kids.forEach((child,i)=>positions.set(child.id,{x:left+36,y:top+BOARD_CARD_HEIGHT+36+i*(BOARD_CARD_HEIGHT+18)}));
+      return;
+    }
+    let cursor=left;const childY=top+BOARD_CARD_HEIGHT+BOARD_LEVEL_GAP;
+    kids.forEach((child,i)=>{place(child,cursor,childY);cursor+=(widths.get(child.id)||BOARD_CARD_WIDTH)+(i<kids.length-1&&(direct(child).length||direct(kids[i+1]).length)?BOARD_COUSIN_GAP:BOARD_SIBLING_GAP);});
+    const first=positions.get(kids[0].id),last=positions.get(kids[kids.length-1].id);
+    positions.set(node.id,{x:(first.x+last.x)/2,y:top});
+  }
+  let rootX=60;
+  for(const root of roots){const width=measure(root);place(root,rootX,44);rootX+=width+BOARD_COUSIN_GAP*1.25;}
+  let minX=Infinity,minY=Infinity,maxX=0,maxY=0;
+  for(const pos of positions.values()){minX=Math.min(minX,pos.x);minY=Math.min(minY,pos.y);maxX=Math.max(maxX,pos.x+BOARD_CARD_WIDTH);maxY=Math.max(maxY,pos.y+BOARD_CARD_HEIGHT);}
+  return {byId,parents,children,positions,compactIds,bounds:positions.size?{minX,minY,maxX,maxY}:null,width:Math.max(1600,Math.ceil(maxX+100)),height:Math.max(900,Math.ceil(maxY+110))};
+}
+function boardEdges(layout){
+  let html='';
+  for(const [parentId,kids] of layout.children){
+    const parent=layout.positions.get(parentId);if(!parent||boardCollapsed.has(parentId))continue;
+    const parentX=parent.x+BOARD_CARD_WIDTH/2,parentY=parent.y+BOARD_CARD_HEIGHT;
+    for(const child of kids){
+      const pos=layout.positions.get(child.id);if(!pos)continue;
+      let path;
+      if(layout.compactIds.has(parentId)){
+        const trunkX=parent.x+18,childY=pos.y+BOARD_CARD_HEIGHT/2;
+        path=`M ${parentX} ${parentY} V ${parentY+16} H ${trunkX} V ${childY} H ${pos.x}`;
+      }else{
+        const childX=pos.x+BOARD_CARD_WIDTH/2,midY=parentY+(pos.y-parentY)/2;
+        path=`M ${parentX} ${parentY} V ${midY} H ${childX} V ${pos.y}`;
+      }
+      html+=`<path data-parent="${esc(parentId)}" data-child="${esc(child.id)}" d="${path}"/>`;
+    }
+  }
+  return html;
+}
+function countBoardDescendants(id,children){return (children.get(id)||[]).reduce((n,child)=>n+1+countBoardDescendants(child.id,children),0);}
+function boardCardContent(person,layout,tiers,editable){
+  const parentId=layout.parents.get(person.id),parent=parentId?layout.byId.get(parentId):null;
+  const directCount=(layout.children.get(person.id)||[]).length,descendantCount=countBoardDescendants(person.id,layout.children);
+  const tier=tiers.get(person.job_role),tierLabel=Number.isFinite(tier)?`Tier ${tier}`:'Access only';
+  const tierColor=Number.isFinite(tier)&&tier>=1&&tier<=4?String(tier):'other';
+  return `<span class="drop-badge">Drop to report to ${esc(person.display_name)}</span>${parent?'<span class="connection-dot"></span>':''}<div class="org-card-inner"><div><div class="runner-head"><strong title="${esc(person.display_name)}">${esc(person.display_name)}</strong>${editable&&parent?`<button type="button" class="detach-button" title="Make ${esc(person.display_name)} top level" aria-label="Detach ${esc(person.display_name)} from manager" onclick="detachBoardUser(event,'${esc(person.id)}')">×</button>`:''}</div><small title="${esc(person.job_role||'User Admin only')}">${esc(person.job_role||'User Admin only')}</small><div class="reports-to">${parent?'Reports to '+esc(parent.display_name):'Top level'}</div></div><div class="card-actions"><span class="tier-chip" data-tier="${tierColor}">${tierLabel}</span>${directCount?`<button type="button" title="${boardCollapsed.has(person.id)?'Expand':'Collapse'} ${esc(person.display_name)} reports" aria-label="${boardCollapsed.has(person.id)?'Expand':'Collapse'} ${esc(person.display_name)} reports" onclick="toggleBoardCollapse(event,'${esc(person.id)}')">${boardCollapsed.has(person.id)?'+':'−'} ${boardCollapsed.has(person.id)?descendantCount:directCount}</button>`:''}</div></div>`;
+}
+function renderBoard(kind,people,roles){
+  const ids=boardIds(kind),layout=computeBoardLayout(people),tiers=new Map(roles.filter(r=>!r.is_access_role).map(r=>[r.name,r.rank]));
+  boardLayouts[kind]=layout;
+  const world=$(ids.world),layer=$(ids.layer),svg=$(ids.lines);
+  world.style.width=layout.width+'px';world.style.height=layout.height+'px';
+  svg.setAttribute('viewBox',`0 0 ${layout.width} ${layout.height}`);svg.innerHTML=boardEdges(layout);
+  const existing=new Map([...layer.querySelectorAll('.org-card')].map(el=>[el.dataset.personId,el]));
+  for(const [id,el] of existing)if(!layout.positions.has(id))el.remove();
+  for(const p of people){
+    const pos=layout.positions.get(p.id);if(!pos)continue;
+    let card=existing.get(p.id);
+    if(!card){
+      card=document.createElement('div');card.className='tree-canvas-card org-card';card.dataset.personId=p.id;card.style.left='0px';card.style.top='0px';
+      if(kind==='admin'){
+        card.draggable=true;
+        card.addEventListener('dragstart',e=>startTreeDrag(e,p.id));card.addEventListener('dragend',endTreeDrag);
+        card.addEventListener('dragover',e=>allowPersonDrop(e,p.id));card.addEventListener('dragleave',clearPersonDrop);
+        card.addEventListener('drop',e=>dropTreeOnPerson(e,p.id));card.addEventListener('click',e=>clickTreePerson(e,p.id));
+      }
+      card.addEventListener('mouseenter',()=>{if(!draggingTreeId)setBoardHover(kind,p.id);});
+      card.addEventListener('mouseleave',()=>{if(boardHoverKind===kind&&boardHoverId===p.id)setBoardHover(kind,null);});
+      layer.appendChild(card);
+    }
+    card.innerHTML=boardCardContent(p,layout,tiers,kind==='admin');
+    card.style.transform=`translate(${Math.round(pos.x)}px,${Math.round(pos.y)}px)`;
+  }
+  $(ids.empty).hidden=layout.positions.size>0;
+  updateBoardModeButtons();applyBoardTransform(kind);setBoardHover(kind,boardHoverKind===kind?boardHoverId:null);
+}
+function setBoardHover(kind,id){
+  boardHoverKind=kind;boardHoverId=id;const layout=boardLayouts[kind];if(!layout)return;
+  const chain=new Set();
+  if(id&&layout.positions.has(id)){
+    let cursor=id,seen=new Set();while(cursor&&!seen.has(cursor)){seen.add(cursor);chain.add(cursor);cursor=layout.parents.get(cursor);}
+    const descendants=parentId=>{for(const child of layout.children.get(parentId)||[]){chain.add(child.id);descendants(child.id);}};descendants(id);
+  }
+  const ids=boardIds(kind);
+  for(const card of $(ids.layer).querySelectorAll('.org-card')){
+    card.classList.toggle('dimmed',!!id&&!chain.has(card.dataset.personId));
+    card.classList.toggle('highlighted',!!id&&chain.has(card.dataset.personId));
+  }
+  for(const path of $(ids.lines).querySelectorAll('path')){
+    const active=!!id&&chain.has(path.dataset.parent)&&chain.has(path.dataset.child);
+    path.classList.toggle('highlighted',active);path.classList.toggle('dimmed',!!id&&!active);
+  }
+}
+function updateBoardModeButtons(){for(const button of document.querySelectorAll('[data-board-mode]')){const active=button.dataset.boardMode===boardLayoutMode;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));}}
+function applyBoardTransform(kind){const state=boardViews[kind],ids=boardIds(kind);$(ids.world).style.transform=`translate(${Math.round(state.panX)}px,${Math.round(state.panY)}px) scale(${state.scale})`;$(ids.zoom).textContent=Math.round(state.scale*100)+'%';}
+function adjustBoardZoom(kind,delta){const state=boardViews[kind],viewport=$(boardIds(kind).viewport),old=state.scale,next=Math.max(.35,Math.min(1.5,+(old+delta).toFixed(2)));if(next===old)return;const centerX=viewport.clientWidth/2,centerY=viewport.clientHeight/2;state.panX=centerX-(centerX-state.panX)*next/old;state.panY=centerY-(centerY-state.panY)*next/old;state.scale=next;applyBoardTransform(kind);}
+function fitBoard(kind){const layout=boardLayouts[kind],state=boardViews[kind],viewport=$(boardIds(kind).viewport);if(!layout?.bounds||!viewport.clientWidth)return;const {minX,minY,maxX,maxY}=layout.bounds;const width=maxX-minX,height=maxY-minY;state.scale=Math.max(.35,Math.min(1.05,Math.min(viewport.clientWidth/(width+80),viewport.clientHeight/(height+90))));state.panX=(viewport.clientWidth-width*state.scale)/2-minX*state.scale;state.panY=(viewport.clientHeight-height*state.scale)/2-minY*state.scale;applyBoardTransform(kind);}
+function setBoardLayoutMode(mode){if(!['horizontal','compact'].includes(mode))return;boardLayoutMode=mode;if(allUsers.length&&isUserAdmin())renderTreeBoard();if(reportingBoardData)renderReadOnlyBoard(reportingBoardData);const kind=$('userTree').classList.contains('active')?'admin':'readonly';fitBoard(kind);}
+function toggleBoardCollapse(event,id){event.stopPropagation();if(boardCollapsed.has(id))boardCollapsed.delete(id);else boardCollapsed.add(id);if($('userTree').classList.contains('active'))renderTreeBoard();else if(reportingBoardData)renderReadOnlyBoard(reportingBoardData);}
+function detachBoardUser(event,id){event.stopPropagation();if(!isUserAdmin())return;const person=allUsers.find(p=>p.id===id);if(person)placeTreeUser(id,null,person.tree_col??0,person.tree_row??0);}
+function initBoardViewport(kind){
+  const state=boardViews[kind];if(state.ready)return;state.ready=true;
+  const viewport=$(boardIds(kind).viewport);
+  viewport.addEventListener('mousedown',e=>{if(e.button!==0||e.target.closest('.org-card,.board-legend,button'))return;state.panning=true;state.panMoved=false;state.startX=e.clientX;state.startY=e.clientY;state.originX=state.panX;state.originY=state.panY;viewport.classList.add('panning');});
+  window.addEventListener('mousemove',e=>{if(!state.panning)return;const dx=e.clientX-state.startX,dy=e.clientY-state.startY;if(Math.abs(dx)+Math.abs(dy)>3)state.panMoved=true;state.panX=state.originX+dx;state.panY=state.originY+dy;applyBoardTransform(kind);});
+  window.addEventListener('mouseup',()=>{if(!state.panning)return;state.panning=false;viewport.classList.remove('panning');if(state.panMoved){state.suppressClick=true;setTimeout(()=>state.suppressClick=false,0);}});
+  viewport.addEventListener('wheel',e=>{e.preventDefault();if(e.ctrlKey||e.metaKey)adjustBoardZoom(kind,e.deltaY<0?.08:-.08);else{state.panX-=e.deltaX*.8;state.panY-=e.deltaY*.8;applyBoardTransform(kind);}},{passive:false});
+  if(kind==='admin'){
+    viewport.addEventListener('dragover',allowTreeDrop);
+    viewport.addEventListener('drop',dropTreeOnGrid);
+    viewport.addEventListener('click',e=>{if(!state.suppressClick)clickTreeGrid(e);});
+  }
+}
+function renderReadOnlyBoard(data){reportingBoardData=data;renderBoard('readonly',data.people||[],data.roles||[]);$('readOnlyCount').textContent=`${(data.people||[]).length} on board`;}
+async function loadReportingBoard(){showView('reportingView',$('reportingTab'));$('readOnlyBoard').textContent='';$('readOnlyCount').textContent='Loading…';$('readOnlyError').textContent='';try{const board=await api('reporting_board');initBoardViewport('readonly');renderReadOnlyBoard(board);fitBoard('readonly');}catch(e){$('readOnlyCount').textContent='';$('readOnlyError').textContent=e.message;}}
 function workRoles(){return allRoles.filter(r=>!r.is_access_role).sort((a,b)=>a.rank-b.rank||a.name.localeCompare(b.name));}
 function fillWorkRole(id,selected=''){const select=$(id);select.innerHTML='<option value="">Select a work role…</option>'+workRoles().map(r=>`<option value="${esc(r.name)}">${esc(r.name)} · Tier ${esc(r.rank)}</option>`).join('');select.value=selected||'';}
 function rolesForForm(roleId,adminId){const workRole=$(roleId).value,admin=$(adminId).checked;if(!workRole)throw Error('Choose one work role');return [workRole,...(admin?['User Admin']:[])];}
@@ -121,13 +301,32 @@ async function saveUser(e){e.preventDefault();$('editUserError').textContent='';
 async function toggleUserActive(){const person=allUsers.find(p=>p.id===selectedTreeId);if(!person)return;const button=$('editUserStatusButton');button.disabled=true;$('editUserError').textContent='';try{await api('set_user_active',{id:person.id,active:!person.active});closeUserEditor();await loadUsers();toast(person.active?'User deactivated.':'User activated.');}catch(e){$('editUserError').textContent=e.message;button.disabled=false;}}
 function renderRoleBoard(){$('roleBoard').innerHTML=workRoles().map(r=>`<div class="role-rank-row"><span class="rank-number">${esc(r.rank)}</span><strong>${esc(r.name)}</strong><input type="number" min="1" max="9999" value="${esc(r.rank)}" aria-label="Tier for ${esc(r.name)}" onchange="setBoardRank('${esc(r.name)}',this.value)"></div>`).join('')+'<p class="hint">User Admin grants access to this area and has no reporting tier.</p>';}
 function roleTier(person){return allRoles.find(r=>r.name===person.job_role)?.rank??Infinity;}
-function renderPeoplePalette(){const people=allUsers.filter(p=>p.active&&!p.tree_placed).sort((a,b)=>roleTier(a)-roleTier(b)||a.display_name.localeCompare(b.display_name));let last='';$('treePeople').innerHTML=people.map(p=>{const group=p.job_role||'User Admin only';const heading=group!==last?`<div class="palette-group">${esc(group)}${Number.isFinite(roleTier(p))?' · Tier '+esc(roleTier(p)):''}</div>`:'';last=group;return heading+`<button type="button" class="palette-person ${selectedBoardId===p.id?'selected':''}" draggable="true" ondragstart="startTreeDrag(event,'${esc(p.id)}')" ondragend="endTreeDrag()" onclick="selectBoardPerson('${esc(p.id)}')"><strong>${esc(p.display_name)}</strong><small>${esc(p.email||'')}</small></button>`;}).join('')||'<div class="empty">Everyone is on the board.</div>';}
-function renderTreeBoard(){const placed=allUsers.filter(p=>p.active&&p.tree_placed),byId=new Map(placed.map(p=>[p.id,p]));let maxX=1600,maxY=900;for(const p of placed){maxX=Math.max(maxX,(p.tree_col??0)+360);maxY=Math.max(maxY,(p.tree_row??0)+220);}const grid=$('userGrid');grid.style.width=maxX+'px';grid.style.height=maxY+'px';$('treeLines').setAttribute('viewBox',`0 0 ${maxX} ${maxY}`);$('treeLines').innerHTML=boardConnections(placed);$('treeBoard').innerHTML=placed.map(p=>`<div class="tree-canvas-card" style="left:${p.tree_col??0}px;top:${p.tree_row??0}px" draggable="true" ondragstart="startTreeDrag(event,'${esc(p.id)}')" ondragend="endTreeDrag()" ondragover="allowPersonDrop(event,'${esc(p.id)}')" ondragleave="clearPersonDrop(event)" ondrop="dropTreeOnPerson(event,'${esc(p.id)}')" onclick="clickTreePerson(event,'${esc(p.id)}')"><strong>${esc(p.display_name)}</strong><small>${esc(p.job_role||'User Admin only')}</small><div class="reports-to">${p.manager_id?(byId.has(p.manager_id)?'Reports to '+esc(byId.get(p.manager_id).display_name):'Reports to inactive user'):'Top level'}</div><div class="card-actions"><span class="tier-chip">${Number.isFinite(roleTier(p))?'Tier '+esc(roleTier(p)):'Access only'}</span></div></div>`).join('');$('gridEmpty').hidden=placed.length>0;$('boardCount').textContent=`${placed.length} on board · ${allUsers.filter(p=>p.active&&!p.tree_placed).length} unplaced`;}
-async function loadUserTree(){if(!isUserAdmin())return loadReportingBoard();showView('userTree',$('userTreeTab'));$('roleBoard').textContent='Loading…';$('treePeople').textContent='Loading…';$('boardError').textContent='';try{await fetchUserAdminData();renderRoleBoard();renderPeoplePalette();renderTreeBoard();focusBoardRoot('userGrid',allUsers.filter(p=>p.active&&p.tree_placed));}catch(e){$('roleBoard').textContent=e.message;$('treePeople').textContent=e.message;}}
-async function arrangeTree(){const button=$('arrangeBoardButton');button.disabled=true;$('boardError').textContent='';try{const result=await api('arrange_tree');const positions=new Map(result.positions.map(p=>[p.id,p]));allUsers.forEach(p=>{const pos=positions.get(p.id);if(pos)Object.assign(p,{tree_col:pos.col,tree_row:pos.row});});renderTreeBoard();focusBoardRoot('userGrid',allUsers.filter(p=>p.active&&p.tree_placed));toast('Board arranged by reporting lines.');}catch(e){$('boardError').textContent=e.message;await fetchUserAdminData();renderPeoplePalette();renderTreeBoard();}finally{button.disabled=false;}}
+function renderPeoplePalette(){
+  const people=allUsers.filter(p=>p.active&&!p.tree_placed).sort((a,b)=>roleTier(a)-roleTier(b)||a.display_name.localeCompare(b.display_name));
+  $('paletteCount').textContent=people.length;
+  let lastTier='';
+  $('treePeople').innerHTML=people.map(p=>{
+    const tier=roleTier(p),group=Number.isFinite(tier)?`Tier ${tier}`:'Access only';
+    const heading=group!==lastTier?`<div class="palette-group">${esc(group)}</div>`:'';lastTier=group;
+    return heading+`<button type="button" class="palette-person ${selectedBoardId===p.id?'selected':''}" draggable="true" ondragstart="startTreeDrag(event,'${esc(p.id)}')" ondragend="endTreeDrag()" onclick="selectBoardPerson('${esc(p.id)}')"><strong>${esc(p.display_name)}</strong><small>${esc(p.job_role||'User Admin only')}</small><span class="tier-chip">${esc(group)}</span></button>`;
+  }).join('')||'<div class="empty">Everyone is on the board.</div>';
+}
+function renderTreeBoard(){
+  const placed=allUsers.filter(p=>p.active&&p.tree_placed);
+  renderBoard('admin',placed,allRoles);
+  $('boardCount').textContent=`${placed.length} on board · ${allUsers.filter(p=>p.active&&!p.tree_placed).length} unplaced`;
+}
+async function loadUserTree(){
+  if(!isUserAdmin())return loadReportingBoard();
+  showView('userTree',$('userTreeTab'));
+  $('roleBoard').textContent='Loading…';$('treePeople').textContent='Loading…';$('boardError').textContent='';
+  try{await fetchUserAdminData();initBoardViewport('admin');renderRoleBoard();renderPeoplePalette();renderTreeBoard();fitBoard('admin');}
+  catch(e){$('roleBoard').textContent=e.message;$('treePeople').textContent=e.message;$('boardError').textContent=e.message;}
+}
+function arrangeTree(){renderTreeBoard();fitBoard('admin');toast('Board arranged by reporting lines.');}
 function selectBoardPerson(id){selectedBoardId=selectedBoardId===id?null:id;renderPeoplePalette();$('boardError').textContent=selectedBoardId?'Click the board or a higher-tier parent to place this person.':'';}
-function startTreeDrag(event,id){draggingTreeId=id;const card=event.currentTarget.getBoundingClientRect();dragOffset={x:event.clientX-card.left,y:event.clientY-card.top};event.dataTransfer.setData('text/plain',id);event.dataTransfer.effectAllowed='move';}
-function endTreeDrag(){draggingTreeId=null;dragOffset=null;document.querySelectorAll('.drop-target,.drop-invalid,.palette-drop-target').forEach(el=>el.classList.remove('drop-target','drop-invalid','palette-drop-target'));}
+function startTreeDrag(event,id){draggingTreeId=id;event.dataTransfer.setData('text/plain',id);event.dataTransfer.effectAllowed='move';$('boardDropBanner').hidden=false;setBoardHover('admin',null);}
+function endTreeDrag(){draggingTreeId=null;$('boardDropBanner').hidden=true;document.querySelectorAll('.drop-target,.drop-invalid,.palette-drop-target').forEach(el=>el.classList.remove('drop-target','drop-invalid','palette-drop-target'));}
 function draggedPerson(event){return draggingTreeId||event.dataTransfer?.getData('text/plain')||selectedBoardId;}
 function validParent(childId,parentId){const child=allUsers.find(p=>p.id===childId),parent=allUsers.find(p=>p.id===parentId);if(!child||!parent?.tree_placed||childId===parentId||!(roleTier(parent)<roleTier(child)))return false;const seen=new Set();let cursor=parent;while(cursor){if(cursor.id===childId||seen.has(cursor.id))return false;seen.add(cursor.id);cursor=allUsers.find(p=>p.id===cursor.manager_id);}return true;}
 function allowPersonDrop(event,parentId){const id=draggedPerson(event);if(!id||id===parentId)return;event.stopPropagation();event.preventDefault();const card=event.currentTarget,valid=validParent(id,parentId);card.classList.toggle('drop-target',valid);card.classList.toggle('drop-invalid',!valid);event.dataTransfer.dropEffect=valid?'move':'none';}
@@ -135,15 +334,36 @@ function clearPersonDrop(event){if(event.currentTarget.contains(event.relatedTar
 function allowTreeDrop(event){event.preventDefault();event.dataTransfer.dropEffect='move';}
 function allowPaletteDrop(event){const id=draggedPerson(event),person=allUsers.find(p=>p.id===id);if(!person?.tree_placed)return;event.preventDefault();event.dataTransfer.dropEffect='move';$('peoplePalette').classList.add('palette-drop-target');}
 function leavePaletteDrop(event){if(!event.currentTarget.contains(event.relatedTarget))$('peoplePalette').classList.remove('palette-drop-target');}
-function boardPosition(event){const rect=$('userGrid').getBoundingClientRect();return {col:Math.max(0,Math.min(10000,Math.round(event.clientX-rect.left-(dragOffset?.x??90)))),row:Math.max(0,Math.min(10000,Math.round(event.clientY-rect.top-(dragOffset?.y??41))))};}
-function childPosition(parentId,childId){const parent=allUsers.find(p=>p.id===parentId),y=Math.min(10000,(parent.tree_row??0)+140),base=parent.tree_col??0,others=allUsers.filter(p=>p.id!==childId&&p.tree_placed);for(let step=0;step<50;step++){const shift=step===0?0:(step%2?1:-1)*Math.ceil(step/2)*210,x=Math.max(0,Math.min(10000,base+shift));if(!others.some(p=>Math.abs((p.tree_col??0)-x)<185&&Math.abs((p.tree_row??0)-y)<90))return {col:x,row:y};}return {col:base,row:y};}
-const pendingBoardIds=new Set();let dragOffset=null;
-async function placeTreeUser(id,parentId,col,row){if(!id||pendingBoardIds.has(id))return;const person=allUsers.find(p=>p.id===id);if(!person)return;if(parentId&&!validParent(id,parentId)){$('boardError').textContent='A direct report must have a lower tier than their parent.';return;}const previous={...person};pendingBoardIds.add(id);$('boardError').textContent='';Object.assign(person,{manager_id:parentId,tree_placed:true,tree_col:col,tree_row:row});selectedBoardId=null;renderPeoplePalette();renderTreeBoard();try{await api('place_tree_user',{id,parentId,col,row});}catch(e){Object.assign(person,previous);renderPeoplePalette();renderTreeBoard();$('boardError').textContent=e.message;}finally{pendingBoardIds.delete(id);draggingTreeId=null;}}
-async function removeTreeUser(id){if(!id||pendingBoardIds.has(id))return;const person=allUsers.find(p=>p.id===id);if(!person?.tree_placed)return;const previous=allUsers.map(p=>({...p}));pendingBoardIds.add(id);$('boardError').textContent='';Object.assign(person,{manager_id:null,tree_placed:false,tree_col:null,tree_row:null});allUsers.filter(p=>p.manager_id===id).forEach(p=>p.manager_id=null);renderPeoplePalette();renderTreeBoard();try{await api('remove_tree_user',{id});}catch(e){allUsers=previous;renderPeoplePalette();renderTreeBoard();$('boardError').textContent=e.message;}finally{pendingBoardIds.delete(id);draggingTreeId=null;}}
-function dropTreeOnGrid(event){event.preventDefault();if(event.target.closest('.tree-canvas-card'))return;const id=draggedPerson(event),pos=boardPosition(event);placeTreeUser(id,null,pos.col,pos.row);}
+function boardPosition(event){const rect=$('userGrid').getBoundingClientRect(),scale=boardViews.admin.scale;return {col:Math.max(0,Math.min(10000,Math.round((event.clientX-rect.left)/scale))),row:Math.max(0,Math.min(10000,Math.round((event.clientY-rect.top)/scale)))};}
+function childPosition(parentId,childId){const parent=allUsers.find(p=>p.id===parentId),siblings=allUsers.filter(p=>p.id!==childId&&p.active&&p.tree_placed&&p.manager_id===parentId),last=siblings.length?Math.max(...siblings.map(p=>p.tree_col??0)):null;return {col:Math.max(0,Math.min(10000,Math.round(last==null?(parent?.tree_col??0):last+10))),row:Math.max(0,Math.min(10000,Math.round((parent?.tree_row??0)+1)))};}
+const pendingBoardIds=new Set();
+async function placeTreeUser(id,parentId,col,row){
+  if(!id||pendingBoardIds.has(id))return;
+  const person=allUsers.find(p=>p.id===id);if(!person)return;
+  if(parentId&&!validParent(id,parentId)){$('boardError').textContent='A direct report must have a lower tier than their parent.';return;}
+  const previous={...person};pendingBoardIds.add(id);$('boardError').textContent='';
+  Object.assign(person,{manager_id:parentId,tree_placed:true,tree_col:col,tree_row:row});
+  selectedBoardId=null;boardCollapsed.delete(id);renderPeoplePalette();renderTreeBoard();endTreeDrag();
+  try{await api('place_tree_user',{id,parentId,col,row});}
+  catch(e){Object.assign(person,previous);renderPeoplePalette();renderTreeBoard();$('boardError').textContent=e.message;}
+  finally{pendingBoardIds.delete(id);draggingTreeId=null;}
+}
+async function removeTreeUser(id){
+  if(!id||pendingBoardIds.has(id))return;
+  const person=allUsers.find(p=>p.id===id);if(!person?.tree_placed)return;
+  const previous=allUsers.map(p=>({...p})),oldParent=person.manager_id;
+  pendingBoardIds.add(id);$('boardError').textContent='';
+  Object.assign(person,{manager_id:null,tree_placed:false,tree_col:null,tree_row:null});
+  allUsers.filter(p=>p.manager_id===id).forEach(p=>p.manager_id=oldParent);
+  boardCollapsed.delete(id);renderPeoplePalette();renderTreeBoard();endTreeDrag();
+  try{await api('remove_tree_user',{id});}
+  catch(e){allUsers=previous;renderPeoplePalette();renderTreeBoard();$('boardError').textContent=e.message;}
+  finally{pendingBoardIds.delete(id);draggingTreeId=null;}
+}
+function dropTreeOnGrid(event){event.preventDefault();event.stopPropagation();if(event.target.closest('.org-card'))return;const id=draggedPerson(event);if(!id)return;const pos=boardPosition(event);placeTreeUser(id,null,pos.col,pos.row);}
 function dropTreeOnPerson(event,parentId){event.preventDefault();event.stopPropagation();event.currentTarget.classList.remove('drop-target','drop-invalid');const id=draggedPerson(event);if(!validParent(id,parentId)){$('boardError').textContent='A direct report must have a lower tier than their parent.';return;}const pos=childPosition(parentId,id);placeTreeUser(id,parentId,pos.col,pos.row);}
 function dropTreeOnPalette(event){event.preventDefault();$('peoplePalette').classList.remove('palette-drop-target');removeTreeUser(draggedPerson(event));}
-function clickTreeGrid(event){if(!selectedBoardId||event.target.closest('.tree-canvas-card'))return;const pos=boardPosition(event);placeTreeUser(selectedBoardId,null,pos.col,pos.row);}
+function clickTreeGrid(event){if(!selectedBoardId||event.target.closest('.org-card'))return;const pos=boardPosition(event);placeTreeUser(selectedBoardId,null,pos.col,pos.row);}
 function clickTreePerson(event,parentId){event.stopPropagation();if(!selectedBoardId)return;const pos=childPosition(parentId,selectedBoardId);placeTreeUser(selectedBoardId,parentId,pos.col,pos.row);}
 async function createBoardRole(e){e.preventDefault();try{await api('create_role',{name:$('boardRoleName').value,rank:Number($('boardRoleRank').value)});$('boardRoleName').value='';await loadUserTree();toast('Role added.');}catch(err){toast(err.message);}}
 async function setBoardRank(name,rank){try{await api('set_role_rank',{name,rank:Number(rank)});await loadUserTree();toast('Role tier updated.');}catch(err){toast(err.message);}}
@@ -155,7 +375,7 @@ async function copyCreatedPassword(){try{await navigator.clipboard.writeText($('
 function refreshClocks(){if(document.hidden)return;const byId=new Map(sessions.map(s=>[s.id,s]));for(const el of document.querySelectorAll('[data-clock]')){const s=byId.get(el.dataset.clock);if(s)el.textContent=duration(elapsed(s));}}
 document.addEventListener('visibilitychange',refreshClocks);
 setInterval(refreshClocks,1000);
-Object.assign(window,{signOut,addRunner,renameRunner,timerAction,discardRunner,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,editUser,closeUserEditor,saveUser,toggleUserActive,arrangeTree,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
+Object.assign(window,{signOut,addRunner,renameRunner,timerAction,discardRunner,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,editUser,closeUserEditor,saveUser,toggleUserActive,arrangeTree,setBoardLayoutMode,adjustBoardZoom,fitBoard,toggleBoardCollapse,detachBoardUser,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
 generatePassword();
 supabase.auth.onAuthStateChange((_event,session)=>{token=session?.access_token||'';if(!session){$('app').hidden=true;$('login').hidden=false;}});
 init();
