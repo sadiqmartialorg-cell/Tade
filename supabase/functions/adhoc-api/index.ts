@@ -312,6 +312,21 @@ Deno.serve(async (req: Request) => {
       }
       return json(data)
     }
+    if (action === 'delete_user') {
+      await assertUserAdmin()
+      const id = String(args.id ?? '')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+        throw new Error('Choose a valid user')
+      if (id === authData.user.id) throw new Error('You cannot delete your own account')
+      const admin = serviceClient()
+      const { data: target, error: targetError } = await admin.from('adhoc_profiles')
+        .select('id').eq('id', id).maybeSingle()
+      if (targetError) throw targetError
+      if (!target) throw new Error('User not found')
+      const { error } = await admin.auth.admin.deleteUser(id)
+      if (error) throw error
+      return json({ id, deleted: true })
+    }
     if (action === 'my_profile') {
       await ownProfile()
       const admin = serviceClient()
