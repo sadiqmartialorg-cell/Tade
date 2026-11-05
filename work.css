@@ -39,3 +39,10 @@
 #runners .runner-actions { flex-wrap: nowrap; gap: 5px; margin-top: auto; }
 #runners .runner-actions button { flex: 1; min-width: 0; padding: 6px 4px; font-size: 10px; white-space: nowrap; }
 #runners .empty { grid-column: 1 / -1; }
+.runner-add-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+.runner-add-actions .add { flex: 1 1 190px; }
+.manual-runner-form { margin-top: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #f8fbff; }
+.manual-runner-form h3 { margin: 0 0 8px; font-size: 16px; }
+.manual-runner-form .field input { width: 100%; }
+.manual-runner-form .error:empty { display: none; }
+@media(max-width: 540px) { .manual-runner-form .row { grid-template-columns: 1fr; gap: 0; } }

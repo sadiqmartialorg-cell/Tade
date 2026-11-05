@@ -107,8 +107,10 @@ Deno.serve(async (req: Request) => {
 
     if (action === 'bootstrap') {
       const displayName = authData.user.user_metadata?.full_name ?? authData.user.email?.split('@')[0] ?? 'New user'
-      const { data: profile, error: profileError } = await supabase.rpc('adhoc_ensure_profile', { p_display_name: displayName }).single()
+      const { data: profileData, error: profileError } = await supabase.rpc('adhoc_ensure_profile', { p_display_name: displayName }).single()
       if (profileError) throw profileError
+      const profile = profileData as { id: string; display_name: string; role: string; job_roles: string[] | null; job_role: string | null; email: string | null } | null
+      if (!profile) throw new Error('Profile not found')
       const [departments, customers, tasks, sessions] = await Promise.all([
         supabase.from('adhoc_departments').select('id,name').eq('active', true).order('sort_order').order('name'),
         supabase.from('adhoc_customers').select('id,name').eq('active', true).order('sort_order').order('name'),
@@ -119,7 +121,7 @@ Deno.serve(async (req: Request) => {
       return json({
         user: { id: profile.id, name: profile.display_name, role: profile.role, roles: profile.job_roles ?? [], jobRole: profile.job_role, email: profile.email ?? authData.user.email },
         config: { departments: departments.data, customers: customers.data, tasks: tasks.data },
-        sessions: sessions.data.map(sessionView), serverNow: new Date().toISOString(),
+        sessions: (sessions.data ?? []).map(sessionView), serverNow: new Date().toISOString(),
       })
     }
 
@@ -140,6 +142,36 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await supabase.rpc('adhoc_timer_action', { p_session_id: args.id, p_action: args.action })
       if (error) throw error
       return json({ session: sessionView(data), serverNow: new Date().toISOString() })
+    }
+    if (action === 'save_runner_times') {
+      await assertTracker()
+      const start = new Date(String(args.startedAt ?? ''))
+      const stop = new Date(String(args.stoppedAt ?? ''))
+      const workDate = String(args.workDate ?? '')
+      const seconds = Math.floor((stop.getTime() - start.getTime()) / 1000)
+      if (!Number.isFinite(seconds) || seconds < 1 || seconds > 2147483647 || stop.getTime() > Date.now() + 60000)
+        throw new Error('Choose a start before the stop time, with at least one second of completed work and no future stop time')
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) throw new Error('Choose a valid work date')
+      const name = String(args.name ?? '').trim() || 'Manual entry'
+      if (name.length > 120) throw new Error('Runner name is too long')
+      const values = {
+        runner_name: name, work_date: workDate, started_at: start.toISOString(), stopped_at: stop.toISOString(),
+        accumulated_seconds: seconds,
+      }
+      const client = serviceClient()
+      if (args.id) {
+        const { data, error } = await client.from('adhoc_task_sessions').update(values)
+          .eq('id', String(args.id)).eq('owner_id', authData.user.id).eq('state', 'stopped')
+          .select('*').maybeSingle()
+        if (error) throw error
+        if (!data) throw new Error('Only your stopped runners can have their times edited')
+        return json({ session: sessionView(data) })
+      }
+      const { data, error } = await client.from('adhoc_task_sessions').insert({
+        owner_id: authData.user.id, state: 'stopped', ...values,
+      }).select('*').single()
+      if (error) throw error
+      return json({ session: sessionView(data) })
     }
     if (action === 'discard_runner') {
       await assertTracker()
