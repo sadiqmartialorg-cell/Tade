@@ -1,7 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0'
 
-const CONFIG_TABLES: Record<string, string> = {
-  departments: 'adhoc_departments', customers: 'adhoc_customers', tasks: 'adhoc_tasks',
+const MODULE_TABLES: Record<string, Record<string, string>> = {
+  ms_tracker: { departments: 'adhoc_departments', customers: 'adhoc_customers', tasks: 'adhoc_tasks', sessions: 'adhoc_task_sessions', logs: 'adhoc_logs' },
+  reporting_tracker: { departments: 'reporting_departments', customers: 'reporting_customers', tasks: 'reporting_tasks', people: 'reporting_people', sessions: 'reporting_sessions', logs: 'reporting_logs' },
 }
 
 const corsHeaders = {
@@ -28,7 +29,7 @@ type ReportedEntry = {
   started_at: string | null; ended_at: string | null;
   duration_seconds: number; department_name: string;
   customer_name: string; task_name: string; remarks: string;
-  owner_name: string;
+  owner_name: string; raised_by_name?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -53,6 +54,9 @@ Deno.serve(async (req: Request) => {
     const body = await req.json()
     const action = String(body.action ?? '')
     const args = body.args ?? {}
+    const moduleKey = String(args.module ?? 'ms_tracker')
+    const tables = MODULE_TABLES[moduleKey]
+    if (!tables) throw new Error('Choose a valid tracker module')
     const serviceClient = () => {
       const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SECRET_KEY') ?? ''
       if (!serviceKey) throw new Error('WorkLog administration is not configured on this project')
@@ -74,15 +78,65 @@ Deno.serve(async (req: Request) => {
       return { tier, manage: tier !== null && tier <= 2 }
     }
     const assertSettingsManager = async () => {
+      await assertTracker()
       if (!(await settingsPermissions()).manage) throw new Error('Tier 1 or 2 access required')
     }
     const assertUserAdmin = async () => {
       if (!(await ownProfile()).job_roles?.includes('User Admin')) throw new Error('User Admin access required')
     }
     const assertTracker = async () => {
-      const profile = await ownProfile()
-      if (profile.role !== 'admin' && !profile.job_roles?.some((role: string) => role !== 'User Admin'))
-        throw new Error('Adhoc Tracker access required')
+      const { data, error } = await supabase.rpc('worklog_module_access', { p_key: moduleKey })
+      if (error) throw error
+      if (!data) throw new Error('This tracker is not enabled for your account')
+    }
+    const moduleBootstrap = async (selectedTables = tables) => {
+      const [departments, customers, tasks, sessions, people] = await Promise.all([
+        supabase.from(selectedTables.departments).select('id,name').eq('active', true).order('sort_order').order('name'),
+        supabase.from(selectedTables.customers).select('id,name').eq('active', true).order('sort_order').order('name'),
+        supabase.from(selectedTables.tasks).select('id,name').eq('active', true).order('sort_order').order('name'),
+        supabase.from(selectedTables.sessions).select('*').neq('state', 'submitted').order('created_at'),
+        selectedTables.people ? supabase.from(selectedTables.people).select('id,name,department_id').eq('active', true).order('sort_order').order('name') : Promise.resolve({ data: [], error: null }),
+      ])
+      for (const result of [departments, customers, tasks, sessions, people]) if (result.error) throw result.error
+      const activeDepartments = new Set((departments.data ?? []).map(d => d.id))
+      return {
+        config: { departments: departments.data, customers: customers.data, tasks: tasks.data,
+          people: (people.data ?? []).filter(p => activeDepartments.has(p.department_id)) },
+        sessions: (sessions.data ?? []).map(sessionView), serverNow: new Date().toISOString(),
+      }
+    }
+    const validModules = async (value: unknown) => {
+      const keys = Array.isArray(value) ? value.map(String) : []
+      if (new Set(keys).size !== keys.length) throw new Error('Choose each tracker once')
+      const { data, error } = await serviceClient().from('worklog_modules').select('key').eq('active', true)
+      if (error) throw error
+      const allowed = new Set((data ?? []).map(m => m.key))
+      if (keys.some(key => !allowed.has(key))) throw new Error('Choose available tracker modules')
+      return keys
+    }
+    const setUserModules = async (id: string, keys: string[]) => {
+      const admin = serviceClient()
+      const { data: before, error: beforeError } = await admin.from('worklog_user_modules')
+        .select('module_key').eq('user_id', id)
+      if (beforeError) throw beforeError
+      const current = new Set((before ?? []).map(row => row.module_key))
+      const desired = new Set(keys)
+      const removed = [...current].filter(key => !desired.has(key))
+      const added = keys.filter(key => !current.has(key))
+      if (removed.length) {
+        const { error: deleteError } = await admin.from('worklog_user_modules')
+          .delete().eq('user_id', id).in('module_key', removed)
+        if (deleteError) throw deleteError
+      }
+      if (added.length) {
+        const { error } = await admin.from('worklog_user_modules')
+          .insert(added.map(module_key => ({ user_id: id, module_key })))
+        if (error) {
+          if (removed.length) await admin.from('worklog_user_modules')
+            .insert(removed.map(module_key => ({ user_id: id, module_key })))
+          throw error
+        }
+      }
     }
     const validRoles = async (value: unknown) => {
       const roles = Array.isArray(value) ? value.map(String) : []
@@ -119,50 +173,67 @@ Deno.serve(async (req: Request) => {
       if (profileError) throw profileError
       const profile = profileData as { id: string; display_name: string; role: string; job_roles: string[] | null; job_role: string | null; email: string | null } | null
       if (!profile) throw new Error('Profile not found')
-      const [departments, customers, tasks, sessions] = await Promise.all([
-        supabase.from('adhoc_departments').select('id,name').eq('active', true).order('sort_order').order('name'),
-        supabase.from('adhoc_customers').select('id,name').eq('active', true).order('sort_order').order('name'),
-        supabase.from('adhoc_tasks').select('id,name').eq('active', true).order('sort_order').order('name'),
-        supabase.from('adhoc_task_sessions').select('*').neq('state', 'submitted').order('created_at'),
+      const [moduleRows, grants] = await Promise.all([
+        serviceClient().from('worklog_modules').select('key,name,sort_order').eq('active', true).order('sort_order'),
+        serviceClient().from('worklog_user_modules').select('module_key').eq('user_id', profile.id),
       ])
-      for (const result of [departments, customers, tasks, sessions]) if (result.error) throw result.error
+      if (moduleRows.error) throw moduleRows.error
+      if (grants.error) throw grants.error
+      const granted = new Set((grants.data ?? []).map(g => g.module_key))
+      const modules = (moduleRows.data ?? []).filter(m => granted.has(m.key))
+      const selected = modules.some(m => m.key === moduleKey) ? moduleKey : modules[0]?.key ?? null
+      const initial = selected ? await (async () => {
+        const selectedTables = MODULE_TABLES[selected]
+        if (!selectedTables) return null
+        return await moduleBootstrap(selectedTables)
+      })() : null
       return json({
         user: { id: profile.id, name: profile.display_name, role: profile.role, roles: profile.job_roles ?? [], jobRole: profile.job_role, email: profile.email ?? authData.user.email },
-        config: { departments: departments.data, customers: customers.data, tasks: tasks.data },
-        sessions: (sessions.data ?? []).map(sessionView), serverNow: new Date().toISOString(),
+        modules, activeModule: selected,
+        config: initial?.config ?? { departments: [], customers: [], tasks: [], people: [] },
+        sessions: initial?.sessions ?? [], serverNow: initial?.serverNow ?? new Date().toISOString(),
       })
+    }
+    if (action === 'module_bootstrap') {
+      await assertTracker()
+      return json(await moduleBootstrap())
     }
 
     if (action === 'create_runner') {
       await assertTracker()
-      const { data, error } = await supabase.rpc('adhoc_create_session', { p_runner_name: args.name })
+      const { data, error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_create_session' : 'reporting_create_session', { p_runner_name: args.name })
       if (error) throw error
       return json({ session: sessionView(data), serverNow: new Date().toISOString() })
     }
     if (action === 'rename_runner') {
       await assertTracker()
-      const { data, error } = await supabase.rpc('adhoc_rename_session', { p_session_id: args.id, p_runner_name: args.name })
+      const { data, error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_rename_session' : 'reporting_rename_session', { p_session_id: args.id, p_runner_name: args.name })
       if (error) throw error
       return json(sessionView(data))
     }
     if (action === 'timer_action') {
       await assertTracker()
-      const { data, error } = await supabase.rpc('adhoc_timer_action', { p_session_id: args.id, p_action: args.action })
+      const { data, error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_timer_action' : 'reporting_timer_action', { p_session_id: args.id, p_action: args.action })
       if (error) throw error
       return json({ session: sessionView(data), serverNow: new Date().toISOString() })
     }
     if (action === 'discard_runner') {
       await assertTracker()
-      const { error } = await supabase.rpc('adhoc_discard_session', { p_session_id: args.id })
+      const { error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_discard_session' : 'reporting_discard_session', { p_session_id: args.id })
       if (error) throw error
       return json({ ok: true })
     }
     if (action === 'submit_task') {
       await assertTracker()
-      const { data, error } = await supabase.rpc('adhoc_submit_task', {
-        p_session_id: args.sessionId, p_department_id: args.departmentId,
-        p_customer_id: args.customerId, p_task_id: args.taskId, p_remarks: args.remarks ?? '',
-      })
+      const { data, error } = moduleKey === 'ms_tracker'
+        ? await supabase.rpc('adhoc_submit_task', {
+          p_session_id: args.sessionId, p_department_id: args.departmentId,
+          p_customer_id: args.customerId, p_task_id: args.taskId, p_remarks: args.remarks ?? '',
+        })
+        : await supabase.rpc('reporting_submit_task', {
+          p_session_id: args.sessionId, p_raised_by_id: args.raisedById,
+          p_customer_id: args.customerId, p_task_id: args.taskId, p_remarks: args.remarks ?? '',
+        })
       if (error) throw error
       return json({ id: data.id, duration: data.duration_seconds })
     }
@@ -175,12 +246,12 @@ Deno.serve(async (req: Request) => {
       if (!Number.isFinite(seconds) || seconds < 1 || seconds > 2147483647 || stop.getTime() > Date.now() + 60000)
         throw new Error('Choose a start before the stop time, with at least one second of completed work and no future stop time')
       if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) throw new Error('Choose a valid work date')
-      const { data, error } = await supabase.rpc('adhoc_submit_manual_task', {
-        p_department_id: args.departmentId, p_customer_id: args.customerId,
-        p_task_id: args.taskId, p_work_date: workDate,
-        p_started_at: start.toISOString(), p_stopped_at: stop.toISOString(),
-        p_remarks: args.remarks ?? '',
-      })
+      const shared = { p_customer_id: args.customerId, p_task_id: args.taskId,
+        p_work_date: workDate, p_started_at: start.toISOString(),
+        p_stopped_at: stop.toISOString(), p_remarks: args.remarks ?? '' }
+      const { data, error } = moduleKey === 'ms_tracker'
+        ? await supabase.rpc('adhoc_submit_manual_task', { ...shared, p_department_id: args.departmentId })
+        : await supabase.rpc('reporting_submit_manual_task', { ...shared, p_raised_by_id: args.raisedById })
       if (error) throw error
       return json({ id: data.id, duration: data.duration_seconds })
     }
@@ -190,7 +261,7 @@ Deno.serve(async (req: Request) => {
       const to = String(args.to ?? '')
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to)
         throw new Error('Choose a valid dashboard date range')
-      const { data, error } = await supabase.rpc('adhoc_dashboard_v2', { p_from: from, p_to: to })
+      const { data, error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_dashboard_v2' : 'reporting_dashboard', { p_from: from, p_to: to })
       if (error) throw error
       return json(data)
     }
@@ -207,7 +278,7 @@ Deno.serve(async (req: Request) => {
         throw new Error('Choose a valid entries date range')
       if (asOf && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(asOf))
         throw new Error('Choose a valid export time')
-      const { data, error } = await supabase.rpc('adhoc_reported_entries', {
+      const { data, error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_reported_entries' : 'reporting_entries', {
         p_from: from || null, p_to: to || null, p_as_of: asOf || null,
         p_offset: offset, p_limit: limit,
       })
@@ -217,13 +288,14 @@ Deno.serve(async (req: Request) => {
         id: row.id, date: row.work_date, loggedAt: row.created_at,
         owner: row.owner_name,
         department: row.department_name, customer: row.customer_name, task: row.task_name,
+        raisedBy: row.raised_by_name ?? null,
         startedAt: row.started_at, stoppedAt: row.ended_at,
         seconds: row.duration_seconds, remarks: row.remarks,
       })))
     }
     if (action === 'activity') {
       await assertTracker()
-      const { data, error } = await supabase.from('adhoc_logs')
+      const { data, error } = await supabase.from(tables.logs)
         .select('id,owner_id,work_date,task_name,department_name,customer_name,duration_seconds,remarks')
         .order('work_date', { ascending: false }).order('created_at', { ascending: false }).limit(100)
       if (error) throw error
@@ -249,44 +321,65 @@ Deno.serve(async (req: Request) => {
         const query = admin.from(table).select('id,name,active,sort_order').order('sort_order').order('name')
         return permissions.manage ? query : query.eq('active', true)
       }
-      const [departments, customers, tasks] = await Promise.all([
-        readConfig(CONFIG_TABLES.departments), readConfig(CONFIG_TABLES.customers), readConfig(CONFIG_TABLES.tasks),
+      const [departments, customers, tasks, people] = await Promise.all([
+        readConfig(tables.departments), readConfig(tables.customers), readConfig(tables.tasks),
+        tables.people ? admin.from(tables.people).select('id,name,department_id,active,sort_order').order('sort_order').order('name') : Promise.resolve({ data: [], error: null }),
       ])
-      for (const result of [departments, customers, tasks]) if (result.error) throw result.error
-      return json({ departments: departments.data, customers: customers.data, tasks: tasks.data, permissions })
+      for (const result of [departments, customers, tasks, people]) if (result.error) throw result.error
+      return json({ departments: departments.data, customers: customers.data, tasks: tasks.data,
+        people: permissions.manage ? people.data : (people.data ?? []).filter(p => p.active), permissions })
     }
     if (action === 'config_add') {
       await assertTracker()
       const type = String(args.type)
-      const table = CONFIG_TABLES[type]
+      const table = tables[type]
       const name = String(args.name ?? '').trim()
-      if (!table) throw new Error('Choose a valid settings list')
+      if (!table || !['departments','customers','tasks','people'].includes(type)) throw new Error('Choose a valid settings list')
       const permissions = await settingsPermissions()
       if (permissions.tier === null) throw new Error('A work role is required for Settings')
       if (type !== 'tasks' && !permissions.manage) throw new Error('Tier 1 or 2 access required')
       if (!name || name.length > 120) throw new Error('Enter a name of 1–120 characters')
-      const { data, error } = await serviceClient().from(table).insert({ name }).select('id,name,active,sort_order').single()
+      const values: Record<string, unknown> = { name }
+      if (type === 'people') {
+        const { data: department, error: departmentError } = await serviceClient().from(tables.departments)
+          .select('id').eq('id', String(args.departmentId ?? '')).eq('active', true).maybeSingle()
+        if (departmentError) throw departmentError
+        if (!department) throw new Error('Choose an active department for this person')
+        values.department_id = department.id
+      }
+      const { data, error } = await serviceClient().from(table).insert(values)
+        .select(type === 'people' ? 'id,name,active,sort_order,department_id' : 'id,name,active,sort_order').single()
       if (error) throw error
       return json(data)
     }
     if (action === 'config_rename') {
       await assertSettingsManager()
-      const table = CONFIG_TABLES[String(args.type)]
+      const type = String(args.type)
+      const table = tables[type]
       const id = String(args.id ?? '')
       const name = String(args.name ?? '').trim()
-      if (!table) throw new Error('Choose a valid settings list')
+      if (!table || !['departments','customers','tasks','people'].includes(type)) throw new Error('Choose a valid settings list')
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error('Choose a valid entry')
       if (!name || name.length > 120) throw new Error('Enter a name of 1–120 characters')
-      const { data, error } = await serviceClient().from(table).update({ name })
-        .eq('id', id).select('id,name,active,sort_order').maybeSingle()
+      const values: Record<string, unknown> = { name }
+      if (type === 'people') {
+        const { data: department, error: departmentError } = await serviceClient().from(tables.departments)
+          .select('id').eq('id', String(args.departmentId ?? '')).eq('active', true).maybeSingle()
+        if (departmentError) throw departmentError
+        if (!department) throw new Error('Choose an active department for this person')
+        values.department_id = department.id
+      }
+      const { data, error } = await serviceClient().from(table).update(values)
+        .eq('id', id).select(type === 'people' ? 'id,name,active,sort_order,department_id' : 'id,name,active,sort_order').maybeSingle()
       if (error) throw error
       if (!data) throw new Error('Entry not found')
       return json(data)
     }
     if (action === 'config_toggle') {
       await assertSettingsManager()
-      const table = CONFIG_TABLES[String(args.type)]
-      if (!table) throw new Error('Choose a valid settings list')
+      const type = String(args.type)
+      const table = tables[type]
+      if (!table || !['departments','customers','tasks','people'].includes(type)) throw new Error('Choose a valid settings list')
       if (typeof args.active !== 'boolean') throw new Error('Choose active or inactive status')
       const { data, error } = await serviceClient().from(table).update({ active: args.active })
         .eq('id', args.id).select('id,name,active,sort_order').single()
@@ -298,18 +391,31 @@ Deno.serve(async (req: Request) => {
       const id = String(args.id ?? '')
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         throw new Error('Choose a valid task')
-      const { data, error } = await serviceClient().from('adhoc_tasks').delete()
+      const { data, error } = await serviceClient().from(tables.tasks).delete()
         .eq('id', id).select('id,name').maybeSingle()
       if (error) throw error
       if (!data) throw new Error('Task not found or no longer available')
       return json(data)
     }
-    if (action === 'list_users') {
+    if (action === 'list_modules') {
       await assertUserAdmin()
-      const { data, error } = await serviceClient().from('adhoc_profiles')
-        .select('id,email,display_name,job_role,job_roles,manager_id,active,tree_placed,tree_col,tree_row').order('display_name')
+      const { data, error } = await serviceClient().from('worklog_modules')
+        .select('key,name,sort_order').eq('active', true).order('sort_order')
       if (error) throw error
       return json(data)
+    }
+    if (action === 'list_users') {
+      await assertUserAdmin()
+      const [people, grants] = await Promise.all([
+        serviceClient().from('adhoc_profiles')
+          .select('id,email,display_name,job_role,job_roles,manager_id,active,tree_placed,tree_col,tree_row').order('display_name'),
+        serviceClient().from('worklog_user_modules').select('user_id,module_key'),
+      ])
+      if (people.error) throw people.error
+      if (grants.error) throw grants.error
+      const byUser = new Map<string, string[]>()
+      for (const grant of grants.data ?? []) byUser.set(grant.user_id, [...(byUser.get(grant.user_id) ?? []), grant.module_key])
+      return json((people.data ?? []).map(person => ({ ...person, modules: byUser.get(person.id) ?? [] })))
     }
     if (action === 'set_user_active') {
       await assertUserAdmin()
@@ -424,9 +530,10 @@ Deno.serve(async (req: Request) => {
       const id = String(args.id ?? '')
       const displayName = String(args.displayName ?? '').trim()
       const roles = await validRoles(args.roles)
+      const modules = args.modules === undefined ? null : await validModules(args.modules)
       if (!displayName || displayName.length > 120) throw new Error('Enter a name of 1–120 characters')
       const { data: people, error: peopleError } = await admin.from('adhoc_profiles')
-        .select('id,active,job_roles,job_role,manager_id,tree_placed')
+        .select('id,active,display_name,job_roles,job_role,manager_id,tree_placed')
       if (peopleError) throw peopleError
       const target = people?.find(p => p.id === id)
       if (!target) throw new Error('User not found')
@@ -438,7 +545,13 @@ Deno.serve(async (req: Request) => {
         .update({ display_name: displayName, job_roles: roles, job_role: jobRole })
         .eq('id', id).select('id,email,display_name,job_role,job_roles,manager_id,active,tree_placed,tree_col,tree_row').single()
       if (error) throw error
-      return json(data)
+      try { if (modules) await setUserModules(id, modules) }
+      catch (moduleError) {
+        await admin.from('adhoc_profiles').update({ display_name: target.display_name,
+          job_roles: target.job_roles, job_role: target.job_role }).eq('id', id)
+        throw moduleError
+      }
+      return json({ ...data, modules })
     }
     if (action === 'place_tree_user') {
       await assertUserAdmin()
@@ -547,6 +660,7 @@ Deno.serve(async (req: Request) => {
       const displayName = String(args.displayName ?? '').trim()
       const password = String(args.password ?? '')
       const roles = await validRoles(args.roles ?? (args.jobRole ? [args.jobRole] : []))
+      const modules = await validModules(args.modules ?? ['ms_tracker'])
       const jobRole = roles.find(r => r !== 'User Admin') ?? null
       if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address')
       if (!displayName || displayName.length > 120) throw new Error('Enter a name of 1–120 characters')
@@ -566,7 +680,13 @@ Deno.serve(async (req: Request) => {
         if (cleanupError) console.error('Failed to clean up Auth user after profile creation error', cleanupError)
         throw profileError
       }
-      return json({ user: profile, invited: false })
+      try { await setUserModules(created.user.id, modules) }
+      catch (moduleError) {
+        const { error: cleanupError } = await admin.auth.admin.deleteUser(created.user.id)
+        if (cleanupError) console.error('Failed to clean up Auth user after module grant error', cleanupError)
+        throw moduleError
+      }
+      return json({ user: { ...profile, modules }, invited: false })
     }
     return json({ error: 'Unknown action' }, 400)
   } catch (error) {
