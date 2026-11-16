@@ -23,6 +23,12 @@ function sessionView(s: Record<string, unknown>) {
   }
 }
 
+function entryOwnerName(value: unknown) {
+  const owner = Array.isArray(value) ? value[0] : value
+  return owner && typeof owner === 'object' && 'display_name' in owner
+    ? String(owner.display_name ?? 'Team member') : 'Team member'
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -185,6 +191,35 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await supabase.rpc('adhoc_dashboard_v2', { p_from: from, p_to: to })
       if (error) throw error
       return json(data)
+    }
+    if (action === 'data_entries') {
+      await assertTracker()
+      const offset = Number(args.offset ?? 0)
+      const limit = Number(args.limit ?? 51)
+      const from = String(args.from ?? '')
+      const to = String(args.to ?? '')
+      const asOf = String(args.asOf ?? '')
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+        throw new Error('Choose a valid entries page')
+      if ((from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) || (from && to && from > to))
+        throw new Error('Choose a valid entries date range')
+      if (asOf && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(asOf))
+        throw new Error('Choose a valid export time')
+      let query = supabase.from('adhoc_logs').select(
+        'id,work_date,created_at,started_at,ended_at,duration_seconds,department_name,customer_name,task_name,remarks,owner:adhoc_profiles!adhoc_logs_owner_id_fkey(display_name)',
+      ).order('work_date', { ascending: false }).order('created_at', { ascending: false }).order('id', { ascending: false })
+      if (from) query = query.gte('work_date', from)
+      if (to) query = query.lte('work_date', to)
+      if (asOf) query = query.lte('created_at', asOf)
+      const { data, error } = await query.range(offset, offset + limit - 1)
+      if (error) throw error
+      return json((data ?? []).map(row => ({
+        id: row.id, date: row.work_date, loggedAt: row.created_at,
+        owner: entryOwnerName(row.owner),
+        department: row.department_name, customer: row.customer_name, task: row.task_name,
+        startedAt: row.started_at, stoppedAt: row.ended_at,
+        seconds: row.duration_seconds, remarks: row.remarks,
+      })))
     }
     if (action === 'activity') {
       await assertTracker()
