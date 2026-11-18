@@ -10,26 +10,29 @@
 #users .user-count { min-height: 18px; margin: 12px 0 14px; color: var(--muted); font-size: 12px; }
 #users .admin-layout { display: block; }
 #users .users-table-panel { min-width: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
-#users #userList { width: 100%; max-height: max(320px, calc(100dvh - 320px)); overflow: auto; overscroll-behavior: contain; }
+#users #userList { width: 100%; max-height: max(320px, calc(100dvh - 320px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 #users #userList:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-#users .user-table { width: 100%; min-width: 1180px; table-layout: auto; }
-#users .user-table th, #users .user-table td { width: auto; padding: 12px 14px; white-space: nowrap; vertical-align: middle; }
+#users .user-table { width: 100%; min-width: 0; table-layout: fixed; }
+#users .user-table th, #users .user-table td { padding: 10px 7px; white-space: nowrap; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; }
+#users .user-table th:nth-child(1) { width: 16%; }
+#users .user-table th:nth-child(2) { width: 22%; }
+#users .user-table th:nth-child(3) { width: 18%; }
+#users .user-table th:nth-child(4) { width: 20%; }
+#users .user-table th:nth-child(5) { width: 13%; }
+#users .user-table th:nth-child(6) { width: 7%; }
+#users .user-table th:nth-child(7) { width: 4%; }
 #users .user-table th { position: sticky; top: 0; z-index: 1; background: #fff; }
-#users .user-table th:last-child, #users .user-table td:last-child { text-align: right; }
-#users .user-table th:last-child, #users .user-table td:last-child {
-  position: sticky;
-  right: 0;
-  z-index: 2;
-  min-width: 104px;
-  background: #fff;
-  box-shadow: -12px 0 16px -15px rgba(20, 35, 53, .55);
-}
-#users .user-table th:last-child { z-index: 3; }
+#users .user-table th:last-child, #users .user-table td:last-child { text-align: center; padding-left: 2px; padding-right: 2px; }
 #users .user-table td:first-child strong { font-weight: 700; }
-#users .user-table .user-role-line { flex-wrap: nowrap; }
+#users .user-table .user-role-line { flex-wrap: nowrap; overflow: hidden; }
+#users .user-table .user-role-line > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#users .user-table .role-pill { flex: none; }
 #users .user-table .user-module-line { display: inline; max-width: none; margin: 0; overflow: visible; color: var(--ink); font-size: 13px; text-overflow: clip; }
 #users .user-table .user-status { display: inline-flex; margin: 0; padding: 4px 8px; border-radius: 999px; background: #e8f6ee; color: #178052; font-size: 11px; }
 #users .user-table .user-status.inactive { background: #f2f3f5; color: #6f7782; }
+#users .user-table .edit-user-button { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid #d4e0ee; border-radius: 7px; }
+#users .user-table .edit-user-button:hover { background: #d6e8ff; color: #125ab4; }
+#users .user-table .edit-user-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 #users .users-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 0; color: var(--muted); font-size: 12px; }
 #users .users-pagination > div { display: flex; gap: 8px; }
 #users .users-pagination button { padding: 7px 11px; font-size: 12px; }
@@ -50,9 +53,19 @@ body.user-drawer-open { overflow: hidden; }
   #users .user-search { flex: 1; }
   #users .user-search input { width: 100%; }
 }
+@media (max-width: 1300px) {
+  #users .user-table, #users .user-table tbody, #users .user-table tr { display: block; width: 100%; }
+  #users .user-table thead { display: none; }
+  #users .user-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin-bottom: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+  #users .user-table td { display: block; width: 100%; padding: 2px 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
+  #users .user-table td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 11px; font-weight: 700; }
+  #users .user-table td:last-child { text-align: left; }
+  #users .user-table .user-role-line { flex-wrap: wrap; }
+}
 @media (max-width: 600px) {
   #users .user-drawer { padding: 20px 18px 30px; border-radius: 0; }
   #users .users-page-actions { flex-wrap: wrap; }
   #users .user-search { flex-basis: 100%; }
   #users .users-pagination { flex-wrap: wrap; }
+  #users .user-table tr { grid-template-columns: 1fr; }
 }

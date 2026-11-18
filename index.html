@@ -448,18 +448,19 @@ function drawUserTable(){
   $('usersNext').disabled=userPage>=totalPages-1;
   const list=$('userList');
   if(!matching.length){list.innerHTML='<div class="empty">'+(query?'No users match your search.':'No users yet.')+'</div>';return;}
-  list.innerHTML='<table class="user-table"><thead><tr><th>Name</th><th>Email</th><th>Work role</th><th>Tracker access</th><th>Reports to</th><th>Status</th><th>Action</th></tr></thead><tbody></tbody></table>';
+  list.innerHTML='<table class="user-table"><thead><tr><th>Name</th><th>Email</th><th>Work role</th><th>Tracker access</th><th>Reports to</th><th>Status</th><th><span class="sr-only">Edit user</span></th></tr></thead><tbody></tbody></table>';
   const body=list.querySelector('tbody');
-  const textCell=(row,value)=>{const cell=row.insertCell();cell.textContent=value??'—';return cell;};
+  const textCell=(row,value)=>{const cell=row.insertCell();cell.textContent=value??'—';if(value)cell.title=value;return cell;};
   for(const person of shown){
     const row=body.insertRow();
     const name=textCell(row,'');
-    const strong=document.createElement('strong');strong.textContent=person.display_name;name.append(strong);
+    const strong=document.createElement('strong');strong.textContent=person.display_name;name.title=person.display_name;name.append(strong);
     textCell(row,person.email||'—');
     const role=textCell(row,'');
     const roleLine=document.createElement('div');roleLine.className='user-role-line';
     const roleName=document.createElement('span');roleName.textContent=person.job_role||'No work role';roleLine.append(roleName);
     if((person.job_roles||[]).includes('User Admin')){const badge=document.createElement('span');badge.className='role-pill';badge.textContent='User Admin';roleLine.append(badge);}
+    role.title=(person.job_role||'No work role')+((person.job_roles||[]).includes('User Admin')?' · User Admin':'');
     role.append(roleLine);
     const moduleNames=(person.modules||[]).map(key=>allModules.find(m=>m.key===key)?.name||key);
     textCell(row,moduleNames.join(' · ')||'Users only');
@@ -467,7 +468,8 @@ function drawUserTable(){
     const status=textCell(row,'');
     const statusBadge=document.createElement('span');statusBadge.className='user-status'+(person.active?'':' inactive');statusBadge.textContent=person.active?'Active':'Inactive';status.append(statusBadge);
     const action=textCell(row,'');
-    const edit=document.createElement('button');edit.type='button';edit.className='secondary edit-user-button';edit.textContent='Edit';edit.addEventListener('click',()=>editUser(person.id));action.append(edit);
+    const edit=document.createElement('button');edit.type='button';edit.className='secondary edit-user-button';edit.setAttribute('aria-label','Edit '+person.display_name);edit.title='Edit '+person.display_name;edit.innerHTML='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4 10.5-10.5z"/></svg>';edit.addEventListener('click',()=>editUser(person.id));action.append(edit);
+    ['Name','Email','Work role','Tracker access','Reports to','Status','Edit'].forEach((label,index)=>{row.cells[index].dataset.label=label;});
   }
 }
 async function fetchUserAdminData(){const [roles,people,moduleOptions]=await Promise.all([api('list_roles'),api('list_users'),api('list_modules')]);return {roles,people,moduleOptions};}
