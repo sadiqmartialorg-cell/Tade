@@ -448,7 +448,7 @@ function drawUserTable(){
   $('usersNext').disabled=userPage>=totalPages-1;
   const list=$('userList');
   if(!matching.length){list.innerHTML='<div class="empty">'+(query?'No users match your search.':'No users yet.')+'</div>';return;}
-  list.innerHTML='<table class="user-table"><thead><tr><th>Name</th><th>Email</th><th>Work role</th><th>Tracker access</th><th>Reports to</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody></tbody></table>';
+  list.innerHTML='<table class="user-table"><thead><tr><th>Name</th><th>Email</th><th>Work role</th><th>Tracker access</th><th>Reports to</th><th>Status</th><th>Action</th></tr></thead><tbody></tbody></table>';
   const body=list.querySelector('tbody');
   const textCell=(row,value)=>{const cell=row.insertCell();cell.textContent=value??'—';return cell;};
   for(const person of shown){

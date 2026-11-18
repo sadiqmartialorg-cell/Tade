@@ -16,6 +16,15 @@
 #users .user-table th, #users .user-table td { width: auto; padding: 12px 14px; white-space: nowrap; vertical-align: middle; }
 #users .user-table th { position: sticky; top: 0; z-index: 1; background: #fff; }
 #users .user-table th:last-child, #users .user-table td:last-child { text-align: right; }
+#users .user-table th:last-child, #users .user-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  min-width: 104px;
+  background: #fff;
+  box-shadow: -12px 0 16px -15px rgba(20, 35, 53, .55);
+}
+#users .user-table th:last-child { z-index: 3; }
 #users .user-table td:first-child strong { font-weight: 700; }
 #users .user-table .user-role-line { flex-wrap: nowrap; }
 #users .user-table .user-module-line { display: inline; max-width: none; margin: 0; overflow: visible; color: var(--ink); font-size: 13px; text-overflow: clip; }
