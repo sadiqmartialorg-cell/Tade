@@ -1,0 +1,22 @@
+name: WorkLog reminders
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Generate due check and task reminders
+        env:
+          WORKLOG_CRON_SECRET: ${{ secrets.WORKLOG_CRON_SECRET }}
+        run: |
+          test -n "$WORKLOG_CRON_SECRET"
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
+            -X POST 'https://edlpujkyxjcubvjdcmle.supabase.co/functions/v1/worklog-operations' \
+            -H 'Content-Type: application/json' \
+            -H "x-cron-secret: $WORKLOG_CRON_SECRET" \
+            -d '{"action":"tick"}'

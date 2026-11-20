@@ -1,2 +1,7 @@
 [functions.adhoc-api]
 verify_jwt = true
+
+# The scheduled tick authenticates with WORKLOG_CRON_SECRET inside the handler.
+# User actions still validate bearer tokens with Supabase Auth.
+[functions.worklog-operations]
+verify_jwt = false

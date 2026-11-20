@@ -181,7 +181,8 @@ Deno.serve(async (req: Request) => {
       if (grants.error) throw grants.error
       const granted = new Set((grants.data ?? []).map(g => g.module_key))
       const modules = (moduleRows.data ?? []).filter(m => granted.has(m.key))
-      const selected = modules.some(m => m.key === moduleKey) ? moduleKey : modules[0]?.key ?? null
+      const trackers = modules.filter(m => MODULE_TABLES[m.key])
+      const selected = trackers.some(m => m.key === moduleKey) ? moduleKey : trackers[0]?.key ?? null
       const initial = selected ? await (async () => {
         const selectedTables = MODULE_TABLES[selected]
         if (!selectedTables) return null
