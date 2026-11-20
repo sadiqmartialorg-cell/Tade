@@ -37,6 +37,36 @@ function requireModule(ctx:Context,key:'daily_activity'|'roster') { if(!ctx.gran
 function requireManager(ctx:Context,key:'daily_activity'|'roster') { requireModule(ctx,key);if(ctx.tier>2)throw Error('Tier 1 or 2 access required') }
 function requirePerson(ctx:Context,id:unknown) { if(!uuid(id)||!ctx.byId.get(id)?.active)throw Error('Choose an active user');return ctx.byId.get(id)! }
 function assertInTeam(ctx:Context,id:string) { if(!ctx.scope.has(id))throw Error('Choose a person in your reporting team') }
+function rosterTeamFor(ctx:Context,personId:string) {
+  let person=ctx.byId.get(personId),last=person
+  const visited=new Set<string>()
+  while(person&&!visited.has(person.id)){
+    visited.add(person.id)
+    if((person.tier??9999)<=2)return person.id
+    last=person
+    person=person.manager_id?ctx.byId.get(person.manager_id):undefined
+  }
+  return last?.id||personId
+}
+function rosterTeamPeople(ctx:Context,teamId:string) {
+  return ctx.people.filter(p=>p.active&&rosterTeamFor(ctx,p.id)===teamId)
+}
+function allowedRosterTeams(ctx:Context) {
+  const scoped=ctx.tier<=2?ctx.people.filter(p=>p.active&&ctx.scope.has(p.id)):[ctx.actor]
+  const ids=new Set(scoped.map(p=>rosterTeamFor(ctx,p.id)))
+  return [...ids].map(id=>{
+    const members=rosterTeamPeople(ctx,id)
+    return {id,name:(ctx.byId.get(id)?.display_name||'Team')+' team',
+      leadCount:members.filter(p=>/team lead/i.test(p.job_role||'')).length}
+  }).sort((a,b)=>b.leadCount-a.leadCount||a.name.localeCompare(b.name))
+}
+function requireRosterTeam(ctx:Context,teamId:unknown,manage=false) {
+  requireModule(ctx,'roster')
+  if(manage&&ctx.tier>2)throw Error('Tier 1 or 2 access required')
+  const team=allowedRosterTeams(ctx).find(t=>t.id===teamId)
+  if(!team)throw Error('This roster team is outside your reporting scope')
+  return team
+}
 async function note(recipient:string,key:string,kind:string,title:string,body:string,itemId:string|null=null,target='daily_activity') {
   const {error}=await admin.from('worklog_inbox').insert({recipient_id:recipient,delivery_key:key,kind,title,body,item_id:itemId,target})
   if(error&&error.code!=='23505')throw error
@@ -59,24 +89,33 @@ async function ensureChecks(from:string,to:string) {
   for(let i=0;i<rows.length;i+=100)await result(admin.from('worklog_activity_items').upsert(rows.slice(i,i+100),{onConflict:'check_id,scheduled_date',ignoreDuplicates:true}))
 }
 async function rosterRows(from:string,to:string) { return await result(admin.from('worklog_roster_shifts').select('*').gte('work_date',addDays(from,-1)).lte('work_date',addDays(to,1))) }
-async function rosterPreview(ctx:Context,week:string) {
-  requireManager(ctx,'roster')
+async function rosterPreview(ctx:Context,week:string,teamId:string) {
+  requireRosterTeam(ctx,teamId,true)
   const until=addDays(week,6)
   const horizon=addDays(istDate(),13)
   if(until>horizon)await ensureChecks(week>horizon?week:addDays(horizon,1),until)
-  const [items,shifts,customers]=await Promise.all([
-    result(admin.from('worklog_activity_items').select('id,title,customer_id,scheduled_date,owner_id,backup_owner_id,creator_id,window_start_at,window_end_at,status').eq('kind','check').gte('scheduled_date',week).lte('scheduled_date',until).in('status',['open','missed'])),
-    rosterRows(week,until),result(admin.from('adhoc_customers').select('id,name')),
+  const userIds=rosterTeamPeople(ctx,teamId).map(p=>p.id)
+  const [items,published,effective,customers]=await Promise.all([
+    result(admin.from('worklog_activity_items').select('id,title,customer_id,scheduled_date,owner_id,backup_owner_id,window_start_at,window_end_at,status').eq('kind','check').eq('status','open').gte('scheduled_date',week).lte('scheduled_date',until)),
+    rosterRows(week,until),
+    result(admin.rpc('worklog_roster_effective_shifts',{p_team:teamId,p_week:week,p_user_ids:userIds})),
+    result(admin.from('adhoc_customers').select('id,name')),
   ])
+  const ids=new Set(userIds)
+  const shifts=published.filter((s:any)=>s.published_kind&&!(s.week_start===week&&ids.has(s.user_id)))
+    .map((s:any)=>({...s,draft_kind:s.published_kind,draft_start:s.published_start,draft_end:s.published_end}))
+    .concat(effective.map((s:any)=>({user_id:s.user_id,work_date:s.work_date,
+      draft_kind:s.kind,draft_start:s.start_time,draft_end:s.end_time})))
   const names=new Map(customers.map((x:any)=>[x.id,x.name]))
   const gaps=[] as any[];const early=[] as any[]
-  const scoped=items.filter((item:any)=>[item.owner_id,item.backup_owner_id,item.creator_id].some(x=>x&&ctx.scope.has(x)))
+  const scoped=items.filter((item:any)=>ids.has(item.owner_id)||ids.has(item.backup_owner_id))
   for(const item of scoped){const c=coverage(item,shifts,true)
-    if(!c.covered)gaps.push({id:item.id,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,reason:'No eligible primary or backup shift'})
+    const personId=ids.has(item.owner_id)?item.owner_id:ids.has(item.backup_owner_id)?item.backup_owner_id:null
+    if(!c.covered)gaps.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,reason:'No eligible primary or backup shift'})
     else {
       const primaryEnd=c.primary.length?Math.max(...c.primary.map(x=>x.end)):null
-      if(primaryEnd!==null&&primaryEnd<Date.parse(item.window_end_at))early.push({id:item.id,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(primaryEnd).toISOString(),reason:'Primary shift ends early'})
-      if(c.final<Date.parse(item.window_end_at)&&c.final!==primaryEnd)early.push({id:item.id,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(c.final).toISOString(),reason:'Final eligible coverage ends early'})
+      if(primaryEnd!==null&&primaryEnd<Date.parse(item.window_end_at))early.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(primaryEnd).toISOString(),reason:'Primary shift ends early'})
+      if(c.final<Date.parse(item.window_end_at)&&c.final!==primaryEnd)early.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(c.final).toISOString(),reason:'Final eligible coverage ends early'})
     }
   }
   return {gaps,early,checks:scoped.length}
@@ -235,39 +274,91 @@ Deno.serve(async request=>{
       await audit(approved?'extension_approved':'extension_declined',id,item.id,{previous:extension.previous_due_at,proposed:extension.proposed_due_at});if(item.owner_id)await note(item.owner_id,`extension_decision:${extension.id}`,'extension',approved?'Extension approved':'Extension declined',item.title,item.id);return reply({ok:true})
     }
     if(action==='roster_week'){
-      requireModule(ctx,'roster');const week=String(args.week||monday(istDate()));if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
-      const [rows,weekRow]=await Promise.all([rosterRows(week,addDays(week,6)),result(admin.from('worklog_roster_weeks').select('*').eq('week_start',week).maybeSingle())])
-      const people=ctx.people.filter(p=>p.active&&(ctx.tier<=2?ctx.scope.has(p.id):p.id===id))
-      return reply({week:weekRow,rows:rows.filter((x:any)=>people.some(p=>p.id===x.user_id)),people})
+      requireModule(ctx,'roster')
+      const week=String(args.week||monday(istDate()))
+      if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
+      const teams=allowedRosterTeams(ctx),teamId=String(args.teamId||teams[0]?.id||'')
+      requireRosterTeam(ctx,teamId)
+      const teamPeople=rosterTeamPeople(ctx,teamId)
+      const people=teamPeople
+      const userIds=new Set(people.map(p=>p.id))
+      const [published,draft,weekRow]=await Promise.all([
+        result(admin.from('worklog_roster_shifts').select('user_id,work_date,published_kind,published_start,published_end').eq('week_start',week)),
+        ctx.tier<=2?result(admin.from('worklog_roster_draft_shifts').select('user_id,work_date,kind,start_time,end_time').eq('team_id',teamId).eq('week_start',week)):Promise.resolve([]),
+        result(admin.from('worklog_roster_team_weeks').select('*').eq('team_id',teamId).eq('week_start',week).maybeSingle()),
+      ])
+      return reply({
+        teamId,teams,people,
+        week:weekRow||{active_version:0,draft_base_version:0,draft_revision:0,draft_mode:'overlay',published_at:null},
+        publishedRows:published.filter((s:any)=>userIds.has(s.user_id)&&s.published_kind),
+        draftRows:draft.filter((s:any)=>userIds.has(s.user_id)),
+        canManage:ctx.tier<=2,
+      })
     }
     if(action==='roster_save'){
-      requireManager(ctx,'roster');const week=String(args.week||''),date=String(args.date||''),owner=requirePerson(ctx,args.userId);assertInTeam(ctx,owner.id)
-      if(!validDate(week)||monday(week)!==week||!validDate(date)||date<week||date>addDays(week,6))throw Error('Choose a date in the roster week')
-      const kind=String(args.kind||'');if(!['work','off','leave'].includes(kind)||kind==='work'&&(!/^\d{2}:\d{2}$/.test(args.start)||!/^\d{2}:\d{2}$/.test(args.end)||args.start===args.end))throw Error('Choose valid shift hours or day off')
-      const previous=await result(admin.from('worklog_roster_shifts').select('draft_kind,draft_start,draft_end').eq('week_start',week).eq('user_id',owner.id).eq('work_date',date).maybeSingle())
-      await result(admin.from('worklog_roster_weeks').upsert({week_start:week,state:'draft'},{onConflict:'week_start',ignoreDuplicates:true}))
-      await result(admin.from('worklog_roster_shifts').upsert({week_start:week,user_id:owner.id,work_date:date,draft_kind:kind,draft_start:kind==='work'?args.start:null,draft_end:kind==='work'?args.end:null},{onConflict:'week_start,user_id,work_date'}))
-      await result(admin.from('worklog_roster_weeks').update({state:'draft',updated_at:new Date().toISOString()}).eq('week_start',week));await audit('roster_edited',id,null,{week,date,userId:owner.id,previous,kind,start:kind==='work'?args.start:null,end:kind==='work'?args.end:null});return reply({ok:true})
+      const week=String(args.week||''),teamId=String(args.teamId||'')
+      requireRosterTeam(ctx,teamId,true)
+      const owner=requirePerson(ctx,args.userId)
+      if(rosterTeamFor(ctx,owner.id)!==teamId)throw Error('Choose a person in this roster team')
+      const dates=Array.isArray(args.dates)?args.dates.map(String):[]
+      if(!validDate(week)||monday(week)!==week||!dates.length||dates.length>7
+        ||dates.some((date:string)=>!validDate(date)||date<week||date>addDays(week,6)))
+        throw Error('Choose one or more dates in the roster week')
+      const kind=String(args.kind||'')
+      if(!['work','off','leave'].includes(kind)
+        ||kind==='work'&&(!/^\d{2}:\d{2}$/.test(args.start)||!/^\d{2}:\d{2}$/.test(args.end)||args.start===args.end))
+        throw Error('Choose valid shift hours or day off')
+      const revision=await result(admin.rpc('worklog_roster_save_cells',{
+        p_team:teamId,p_week:week,p_actor:id,
+        p_expected_version:Number(args.expectedVersion||0),
+        p_expected_revision:Number(args.expectedRevision||0),
+        p_user:owner.id,p_days:dates,p_kind:kind,
+        p_start:kind==='work'?args.start:null,p_end:kind==='work'?args.end:null,
+      }))
+      return reply({revision})
     }
     if(action==='roster_copy'){
-      requireManager(ctx,'roster');const week=String(args.week||'');if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
-      const previous=await result(admin.from('worklog_roster_shifts').select('*').eq('week_start',addDays(week,-7)).not('published_kind','is',null));await result(admin.from('worklog_roster_weeks').upsert({week_start:week,state:'draft'},{onConflict:'week_start',ignoreDuplicates:true}))
-      const rows=previous.filter((s:any)=>ctx.scope.has(s.user_id)).map((s:any)=>({week_start:week,user_id:s.user_id,work_date:addDays(s.work_date,7),draft_kind:s.published_kind,draft_start:s.published_start,draft_end:s.published_end}))
-      if(rows.length)await result(admin.from('worklog_roster_shifts').upsert(rows,{onConflict:'week_start,user_id,work_date'}))
-      await result(admin.from('worklog_roster_weeks').update({state:'draft',updated_at:new Date().toISOString()}).eq('week_start',week))
-      await audit('roster_copied',id,null,{week,count:rows.length});return reply({copied:rows.length})
+      const week=String(args.week||''),teamId=String(args.teamId||'')
+      requireRosterTeam(ctx,teamId,true)
+      if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
+      const people=rosterTeamPeople(ctx,teamId)
+      const revision=await result(admin.rpc('worklog_roster_copy_previous',{
+        p_team:teamId,p_week:week,p_actor:id,
+        p_expected_version:Number(args.expectedVersion||0),
+        p_expected_revision:Number(args.expectedRevision||0),
+        p_user_ids:people.map(p=>p.id),p_replace:args.replace===true,
+      }))
+      return reply({revision})
     }
-    if(action==='roster_preview'){const week=String(args.week||'');if(!validDate(week))throw Error('Choose a week');return reply(await rosterPreview(ctx,week))}
+    if(action==='roster_preview'){
+      const week=String(args.week||''),teamId=String(args.teamId||'')
+      if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
+      return reply(await rosterPreview(ctx,week,teamId))
+    }
     if(action==='roster_publish'){
-      requireManager(ctx,'roster');const week=String(args.week||'');if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
-      const preview=await rosterPreview(ctx,week);if(preview.gaps.length)throw Error(`${preview.gaps.length} check coverage gap(s). Fix shifts or assignments before publishing.`)
-      const rows=await result(admin.from('worklog_roster_shifts').select('*').eq('week_start',week));
-      const changed=new Set<string>(rows.filter((s:any)=>ctx.scope.has(s.user_id)&&(s.draft_kind!==s.published_kind||s.draft_start!==s.published_start||s.draft_end!==s.published_end)).map((s:any)=>String(s.user_id)))
-      const version=await result(admin.rpc('worklog_publish_roster',{p_week:week,p_user_ids:[...ctx.scope],p_actor:id}))
-      const items=await result(admin.from('worklog_activity_items').select('*').eq('kind','check').gte('scheduled_date',week).lte('scheduled_date',addDays(week,6)).eq('status','open'))
-      const shifts=await rosterRows(week,addDays(week,6));for(const item of items){const c=coverage(item,shifts);if(c.covered&&new Date(c.final).toISOString()!==item.due_at)await result(admin.from('worklog_activity_items').update({due_at:new Date(c.final).toISOString()}).eq('id',item.id))}
-      for(const owner of changed)await note(owner,`roster:${week}:${version}:${owner}`,'roster','Roster published',`Week of ${week}`,null,'roster')
-      await audit('roster_published',id,null,{week,version,early:preview.early.length});return reply({version,early:preview.early})
+      const week=String(args.week||''),teamId=String(args.teamId||'')
+      requireRosterTeam(ctx,teamId,true)
+      if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
+      const preview=await rosterPreview(ctx,week,teamId)
+      if(preview.gaps.length)return reply({error:'Resolve coverage gaps before publishing',conflicts:preview.gaps},409)
+      const people=rosterTeamPeople(ctx,teamId)
+      const publication=await result(admin.rpc('worklog_roster_publish_team',{
+        p_team:teamId,p_week:week,p_actor:id,
+        p_expected_version:Number(args.expectedVersion||0),
+        p_expected_revision:Number(args.expectedRevision||0),
+        p_user_ids:people.map(p=>p.id),
+      }))
+      return reply({...publication,early:preview.early})
+    }
+    if(action==='roster_history'){
+      const week=String(args.week||''),teamId=String(args.teamId||'')
+      requireRosterTeam(ctx,teamId,true)
+      if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
+      const rows=await result(admin.from('worklog_roster_publications')
+        .select('version,base_version,published_by,published_at,changes')
+        .eq('team_id',teamId).eq('week_start',week)
+        .order('version',{ascending:false}).limit(20))
+      return reply(rows)
     }
     throw Error('Unknown action')
   }catch(error){console.error('worklog-operations failed',error);return reply({error:error instanceof Error?error.message:'Request failed'},400)}
