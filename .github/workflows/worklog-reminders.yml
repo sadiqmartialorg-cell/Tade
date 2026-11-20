@@ -9,14 +9,18 @@ jobs:
   tick:
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      id-token: write
     steps:
       - name: Generate due check and task reminders
-        env:
-          WORKLOG_CRON_SECRET: ${{ secrets.WORKLOG_CRON_SECRET }}
         run: |
-          test -n "$WORKLOG_CRON_SECRET"
+          set -euo pipefail
+          oidc_token=$(curl --fail-with-body --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=worklog-reminders" | jq -r '.value')
+          test -n "$oidc_token"
           curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
             -X POST 'https://edlpujkyxjcubvjdcmle.supabase.co/functions/v1/worklog-operations' \
             -H 'Content-Type: application/json' \
-            -H "x-cron-secret: $WORKLOG_CRON_SECRET" \
+            -H "Authorization: Bearer $oidc_token" \
             -d '{"action":"tick"}'

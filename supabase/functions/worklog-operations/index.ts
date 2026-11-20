@@ -1,8 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0'
 import webPush from 'npm:web-push@3.6.7'
+import {scheduledIdentity,vapidKeys} from './security.ts'
 import {addDays,istDate,istStamp,monday,startEnd,ownerFor,buildCheckRows,coverage} from './schedule.ts'
 
-const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info,x-cron-secret', 'Access-Control-Allow-Methods':'POST,OPTIONS' }
+const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods':'POST,OPTIONS' }
 const reply = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers:{ ...CORS, 'Content-Type':'application/json' } })
 const projectUrl = Deno.env.get('SUPABASE_URL') ?? ''
 const publishable = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
@@ -104,7 +105,7 @@ async function tick() {
   for(const item of due){const personal=coverage({...item,window_start_at:new Date(now-60000).toISOString(),window_end_at:new Date(now+60000).toISOString()},shifts)
     if(personal.primary.some(x=>now>=x.start&&now<x.end)){const remaining=now-Date.parse(item.due_at),slot=remaining<0?-1:Math.floor(remaining/(60*60000));await note(item.owner_id,`due:${item.id}:${Date.parse(item.due_at)}:${slot}`,'due',slot<0?'Task due soon':'Task overdue',item.title,item.id)}
   }
-  const pub=Deno.env.get('WORKLOG_VAPID_PUBLIC_KEY'),priv=Deno.env.get('WORKLOG_VAPID_PRIVATE_KEY')
+  const {publicKey:pub,privateKey:priv}=vapidKeys(secret)
   if(pub&&priv){webPush.setVapidDetails('mailto:sadiq.a@talview.com',pub,priv)
     const pending=await result(admin.from('worklog_inbox').select('*').is('push_sent_at',null).lt('push_attempts',3).order('created_at').limit(80))
     for(const message of pending){
@@ -128,8 +129,7 @@ Deno.serve(async request=>{
   try{
     const body=await request.json(),action=String(body.action||''),args=body.args||{}
     if(action==='tick'){
-      const expected=Deno.env.get('WORKLOG_CRON_SECRET')
-      if(!expected||request.headers.get('x-cron-secret')!==expected)return reply({error:'Not authorized'},401)
+      if(!await scheduledIdentity(request))return reply({error:'Not authorized'},401)
       return reply(await tick())
     }
     const token=request.headers.get('Authorization')?.replace(/^Bearer /,'')||''
@@ -144,7 +144,7 @@ Deno.serve(async request=>{
     }
     if(action==='inbox'){const rows=await result(admin.from('worklog_inbox').select('id,kind,title,body,target,created_at,read_at,item_id').eq('recipient_id',id).order('created_at',{ascending:false}).limit(100));return reply(rows)}
     if(action==='inbox_read'){await result(admin.from('worklog_inbox').update({read_at:new Date().toISOString()}).eq('id',args.id).eq('recipient_id',id));return reply({ok:true})}
-    if(action==='push_key')return reply({publicKey:Deno.env.get('WORKLOG_VAPID_PUBLIC_KEY')||null})
+    if(action==='push_key')return reply({publicKey:vapidKeys(secret).publicKey})
     if(action==='push_subscribe'){const s=args.subscription;if(!s?.endpoint||!s.keys?.p256dh||!s.keys?.auth)throw Error('Invalid push subscription');await result(admin.from('worklog_push_subscriptions').upsert({user_id:id,endpoint:s.endpoint,p256dh:s.keys.p256dh,auth:s.keys.auth,updated_at:new Date().toISOString()},{onConflict:'endpoint'}));return reply({ok:true})}
     if(action==='push_unsubscribe'){await result(admin.from('worklog_push_subscriptions').delete().eq('user_id',id).eq('endpoint',args.endpoint));return reply({ok:true})}
     if(action==='activity_list'){
