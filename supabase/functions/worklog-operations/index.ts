@@ -1,7 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0'
 import webPush from 'npm:web-push@3.6.7'
 import {scheduledIdentity,vapidKeys} from './security.ts'
-import {addDays,istDate,istStamp,monday,startEnd,ownerFor,buildCheckRows,coverage} from './schedule.ts'
+import {addDays,istDate,istStamp,monday,startEnd,nextPublishedShiftEnd,ownerFor,buildCheckRows,coverage} from './schedule.ts'
+import {eligibleTaskOwners,type OneTimeKind} from './task-routing.ts'
 
 const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods':'POST,OPTIONS' }
 const reply = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers:{ ...CORS, 'Content-Type':'application/json' } })
@@ -178,8 +179,27 @@ Deno.serve(async request=>{
     if(authError||!user)throw Error('Invalid session')
     const ctx=await context(user.id),id=user.id
     if(action==='bootstrap'){
-      const customers=await result(admin.from('adhoc_customers').select('id,name').eq('active',true).order('name'))
-      return reply({customers,people:ctx.people.filter(p=>p.active).map(p=>({id:p.id,name:p.display_name,tier:p.tier,managerId:p.manager_id,inTeam:ctx.scope.has(p.id)})),tier:ctx.tier,canManage:ctx.tier<=2})
+      const [customers,recipients]=await Promise.all([
+        result(admin.from('adhoc_customers').select('id,name').eq('active',true).order('name')),
+        result(admin.from('worklog_user_modules').select('user_id').eq('module_key','daily_activity')),
+      ])
+      const canReceive=new Set(recipients.map((r:any)=>r.user_id))
+      const oneTimeOwners=Object.fromEntries((['assignment','support','dependency'] as OneTimeKind[])
+        .map(kind=>[kind,eligibleTaskOwners(ctx.people,ctx.actor.id,ctx.scope,kind)
+          .filter(person=>canReceive.has(person.id)).map(person=>person.id)]))
+      return reply({customers,people:ctx.people.filter(p=>p.active).map(p=>({id:p.id,name:p.display_name,tier:p.tier,managerId:p.manager_id,inTeam:ctx.scope.has(p.id)})),tier:ctx.tier,canManage:ctx.tier<=2,oneTimeOwners})
+    }
+    if(action==='due_preview'){
+      requireModule(ctx,'daily_activity')
+      const kind=String(args.kind||'') as OneTimeKind
+      if(!['assignment','support','dependency'].includes(kind))throw Error('Choose a task type')
+      const ids:string[]=Array.isArray(args.ownerIds)?[...new Set<string>(args.ownerIds.map((value:unknown)=>String(value)))]:[]
+      if(!ids.length||ids.length>10)throw Error('Choose up to 10 assignees')
+      const allowed=new Set(eligibleTaskOwners(ctx.people,id,ctx.scope,kind).map(p=>p.id))
+      if(ids.some(ownerId=>!allowed.has(ownerId)))throw Error('An assignee is outside the permitted tier or reporting route')
+      for(const ownerId of ids)await assertDailyRecipient(ownerId)
+      const shifts=await rosterRows(istDate(),addDays(istDate(),14))
+      return reply(ids.map(ownerId=>({ownerId,dueAt:nextPublishedShiftEnd(shifts,ownerId)})))
     }
     if(action==='inbox'){const rows=await result(admin.from('worklog_inbox').select('id,kind,title,body,target,created_at,read_at,item_id').eq('recipient_id',id).order('created_at',{ascending:false}).limit(100));return reply(rows)}
     if(action==='inbox_read'){await result(admin.from('worklog_inbox').update({read_at:new Date().toISOString()}).eq('id',args.id).eq('recipient_id',id));return reply({ok:true})}
@@ -234,17 +254,35 @@ Deno.serve(async request=>{
     }
     if(action==='one_create'){
       requireModule(ctx,'daily_activity');const kind=String(args.kind||'');if(!['assignment','support','dependency'].includes(kind))throw Error('Choose a task type')
-      const owner=requirePerson(ctx,args.ownerId),customer=await result(admin.from('adhoc_customers').select('id').eq('id',args.customerId).eq('active',true).maybeSingle());if(!customer)throw Error('Choose an active MS customer')
-      await assertDailyRecipient(owner.id)
-      if(kind!=='support')assertInTeam(ctx,owner.id)
-      if(kind==='assignment'&&(owner.id===id||owner.tier!<=ctx.tier))throw Error('Assignments must go downward within your team')
-      const due=new Date(String(args.dueAt||'')),title=String(args.title||'').trim();if(!Number.isFinite(due.getTime())||due.getTime()<Date.now()||!title||title.length>160)throw Error('Enter a title and future due date')
-      const approver=args.approverId?requirePerson(ctx,args.approverId):ctx.actor
-      await assertDailyRecipient(approver.id)
+      const ownerIds:string[]=Array.isArray(args.ownerIds)?[...new Set<string>(args.ownerIds.map((value:unknown)=>String(value)))]:args.ownerId?[String(args.ownerId)]:[]
+      if(!ownerIds.length||ownerIds.length>10||kind!=='assignment'&&ownerIds.length!==1)throw Error('Choose a valid assignee')
+      const allowed=new Set(eligibleTaskOwners(ctx.people,id,ctx.scope,kind as OneTimeKind).map(p=>p.id))
+      const owners=ownerIds.map(ownerId=>requirePerson(ctx,ownerId))
+      if(owners.some(owner=>!allowed.has(owner.id)))throw Error('An assignee is outside the permitted tier or reporting route')
+      for(const owner of owners)await assertDailyRecipient(owner.id)
+      const customer=await result(admin.from('adhoc_customers').select('id').eq('id',args.customerId).eq('active',true).maybeSingle());if(!customer)throw Error('Choose an active MS customer')
+      const title=String(args.title||'').trim();if(!title||title.length>160)throw Error('Enter a task name')
+      const dueMode=String(args.dueMode||'custom')
+      if(!['shift','tomorrow','custom'].includes(dueMode))throw Error('Choose a deadline')
+      const shifts=dueMode==='shift'?await rosterRows(istDate(),addDays(istDate(),14)):[]
+      const customDue=dueMode==='custom'?new Date(String(args.dueAt||'')):null
+      if(customDue&&!Number.isFinite(customDue.getTime()))throw Error('Choose a valid deadline')
+      const dueByOwner=new Map(owners.map(owner=>[owner.id,
+        dueMode==='shift'?nextPublishedShiftEnd(shifts,owner.id):
+        dueMode==='tomorrow'?istStamp(addDays(istDate(),1),'18:00'):customDue?.toISOString()||null]))
+      if([...dueByOwner.values()].some(due=>!due||Date.parse(due)<=Date.now()))
+        throw Error(dueMode==='shift'?'A selected assignee has no upcoming published shift. Choose another deadline.':'Choose a future deadline')
       let prerequisite=null;if(kind==='dependency'){if(!uuid(args.prerequisiteId))throw Error('Choose a prerequisite');prerequisite=await result(admin.from('worklog_activity_items').select('id,owner_id').eq('id',args.prerequisiteId).single());if(!ctx.scope.has(prerequisite.owner_id))throw Error('Prerequisite is outside your team')}
       const steps=Array.isArray(args.steps)?args.steps.map(String).filter(Boolean):[]
-      const item=await result(admin.from('worklog_activity_items').insert({kind,customer_id:customer.id,title,instructions:String(args.instructions||''),steps,evidence_required:!!args.evidenceRequired,creator_id:id,owner_id:owner.id,approver_id:approver.id,prerequisite_id:prerequisite?.id||null,due_at:due.toISOString(),original_due_at:due.toISOString()}).select('*').single())
-      await audit('task_created',id,item.id,{kind,ownerId:owner.id});await note(owner.id,`assigned:${item.id}`,'assignment','New '+kind,item.title,item.id);return reply(item)
+      if(steps.length>20)throw Error('Use at most 20 checklist steps')
+      const items=await result(admin.from('worklog_activity_items').insert(owners.map(owner=>({
+        kind,customer_id:customer.id,title,instructions:String(args.instructions||''),steps,
+        evidence_required:!!args.evidenceRequired,creator_id:id,owner_id:owner.id,approver_id:id,
+        prerequisite_id:prerequisite?.id||null,due_at:dueByOwner.get(owner.id),
+        original_due_at:dueByOwner.get(owner.id),
+      }))).select('*'))
+      for(const item of items){await audit('task_created',id,item.id,{kind,ownerId:item.owner_id});await note(item.owner_id,`assigned:${item.id}`,'assignment','New '+kind,item.title,item.id)}
+      return reply({items})
     }
     if(action==='item_complete'){
       requireModule(ctx,'daily_activity');const item=await result(admin.from('worklog_activity_items').select('*').eq('id',args.itemId).single());if(![item.owner_id,item.backup_owner_id].includes(id))throw Error('Only an assigned owner can complete this activity')
@@ -263,7 +301,7 @@ Deno.serve(async request=>{
     if(action==='extension_request'){
       requireModule(ctx,'daily_activity');const item=await result(admin.from('worklog_activity_items').select('*').eq('id',args.itemId).single());if(item.kind==='check'||item.owner_id!==id||item.status!=='open')throw Error('Only the assignee can request an extension for an open one-time task')
       const proposed=new Date(String(args.proposedDueAt||'')),reason=String(args.reason||'').trim();if(!Number.isFinite(proposed.getTime())||proposed.getTime()<=Date.parse(item.due_at)||!reason)throw Error('Choose a later due date and enter a reason')
-      const approver=item.approver_id||item.creator_id;if(!approver)throw Error('No approver is available')
+      const approver=item.creator_id||item.approver_id;if(!approver)throw Error('No approver is available')
       const extension=await result(admin.from('worklog_activity_extensions').insert({item_id:item.id,previous_due_at:item.due_at,proposed_due_at:proposed.toISOString(),reason,requested_by:id,approver_id:approver}).select('*').single())
       await audit('extension_requested',id,item.id,{extensionId:extension.id,previous:item.due_at,proposed:proposed.toISOString()});await note(approver,`extension:${extension.id}`,'extension','Extension requested',item.title,item.id);return reply(extension)
     }

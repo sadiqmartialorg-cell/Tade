@@ -7,6 +7,12 @@ export const startEnd = (date: string, start: string, end: string) => {
   const first=istStamp(date,start), last=istStamp(end<=start?addDays(date,1):date,end)
   return {first,last}
 }
+export function nextPublishedShiftEnd(shifts:any[],ownerId:string,now=Date.now()) {
+  const ends=shifts.filter(s=>s.user_id===ownerId&&s.published_kind==='work'&&s.published_start&&s.published_end)
+    .map(s=>startEnd(s.work_date,s.published_start,s.published_end).last)
+    .filter(end=>Date.parse(end)>now).sort()
+  return ends[0]||null
+}
 export function matches(series:any,date:string) {
   if(date<series.starts_on||series.ends_on&&date>series.ends_on||!series.active)return false
   if(series.schedule_kind==='daily')return true

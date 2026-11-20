@@ -50,6 +50,44 @@
 .ops-dialog::backdrop { background:#10203688; }
 .ops-dialog h3 { margin:0 0 8px; }
 .ops-dialog .field textarea,.ops-dialog .field input,.ops-dialog .field select { width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:10px; }
+.ops-quick-dialog { width:min(580px,calc(100vw - 24px)); max-height:min(90dvh,900px); padding:0; border:1px solid var(--line); border-radius:15px; color:var(--ink); box-shadow:0 20px 70px #10203655; }
+.ops-quick-dialog::backdrop { background:#10203688; }
+.ops-quick-dialog form { max-height:min(90dvh,900px); display:flex; flex-direction:column; }
+.ops-quick-head,.ops-quick-foot { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:13px 18px; background:#fff; }
+.ops-quick-head { border-bottom:1px solid var(--line); }
+.ops-quick-head h2 { margin:0; font-size:19px; }
+.ops-quick-head button { padding:4px 9px; font-size:20px; line-height:1.1; }
+.ops-quick-foot { justify-content:flex-end; border-top:1px solid var(--line); }
+.ops-quick-body { padding:8px 18px 15px; overflow:auto; }
+.ops-quick-body .field { margin:10px 0; }
+.ops-quick-body .field > strong { display:block; margin-bottom:5px; }
+.ops-quick-body .field input,.ops-quick-body .field select,.ops-quick-body .field textarea,.ops-quick-check input,.ops-quick-check select { width:100%; min-width:0; padding:9px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; color:var(--ink); }
+.ops-quick-mode { display:flex; gap:5px; margin:11px 0; padding:3px; border:0; border-radius:9px; background:#edf2fa; }
+.ops-quick-mode legend { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+.ops-quick-mode label { padding:6px 13px; border-radius:7px; color:var(--muted); cursor:pointer; }
+.ops-quick-mode label:has(input:checked) { background:#fff; color:var(--blue); box-shadow:0 1px 4px #10203620; font-weight:700; }
+.ops-quick-mode input { accent-color:var(--blue); }
+.ops-quick-section { display:grid; gap:5px; }
+.ops-quick-checklist { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; max-height:150px; overflow:auto; }
+.ops-quick-checklist label { display:flex; align-items:center; gap:7px; padding:8px; border:1px solid var(--line); border-radius:8px; cursor:pointer; font-size:12px; }
+.ops-quick-checklist label:has(input:checked) { border-color:var(--blue); background:#edf4ff; }
+.ops-quick-checklist input { width:15px!important; flex:none; accent-color:var(--blue); }
+.ops-quick-checklist small { margin-left:auto; color:var(--muted); white-space:nowrap; }
+.ops-quick-summary { margin:2px 0 8px; padding:9px 11px; border-radius:8px; background:#f1f5fb; color:#405570; font-size:12px; }
+.ops-quick-summary span { display:block; margin:2px 0; }
+.ops-quick-check { margin:8px 0; padding:10px; border:1px solid var(--line); border-radius:9px; background:#f8fafd; }
+.ops-quick-check .ops-check-heading { margin:0 0 8px; }
+.ops-quick-check .ops-check-heading button { padding:4px 8px; font-size:11px; }
+.ops-quick-check-main { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.ops-quick-check label { display:block; font-size:12px; font-weight:700; }
+.ops-quick-check label input,.ops-quick-check label select { display:block; margin-top:4px; }
+.ops-quick-check .hint { margin:6px 0 0; }
+.ops-quick-check details { margin-top:7px; }
+.ops-quick-check details summary,.ops-quick-more summary { color:var(--blue); font-size:12px; font-weight:700; cursor:pointer; }
+.ops-quick-check details .ops-quick-check-main { margin:9px 0; }
+.ops-quick-more { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+.ops-quick-more-body { margin-top:7px; }
+.ops-quick-more .ops-check input { width:auto!important; }
 .ops-roster-actions,.ops-roster-toolbar,.ops-roster-week-nav,.ops-roster-sheet-head,.ops-roster-footer,.ops-roster-coverage-head { display:flex; align-items:center; gap:12px; }
 .ops-roster-actions,.ops-roster-toolbar { flex-wrap:wrap; }
 .ops-roster-actions button { white-space:nowrap; }

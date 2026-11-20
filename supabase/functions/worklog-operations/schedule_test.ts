@@ -1,4 +1,4 @@
-import {buildCheckRows,coverage} from './schedule.ts'
+import {buildCheckRows,coverage,nextPublishedShiftEnd} from './schedule.ts'
 
 function assertEquals(actual:unknown,expected:unknown) {
   if(JSON.stringify(actual)!==JSON.stringify(expected))throw Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`)
@@ -44,4 +44,15 @@ Deno.test('overnight shift covers a check after midnight on the next calendar da
   const item=buildCheckRows([series],[night],[],'2026-11-21','2026-11-21')[0]
   const shift=[{user_id:'X',work_date:'2026-11-20',published_kind:'work',published_start:'22:00',published_end:'06:00'}]
   assertEquals(coverage(item,shift).covered,true)
+})
+
+Deno.test('end-of-shift deadline uses the current or next published shift, including overnight',()=>{
+  const shifts=[
+    {user_id:'X',work_date:'2026-11-20',published_kind:'work',published_start:'22:00',published_end:'06:00'},
+    {user_id:'X',work_date:'2026-11-21',published_kind:'work',published_start:'09:00',published_end:'18:00'},
+    {user_id:'Y',work_date:'2026-11-20',published_kind:'off',published_start:null,published_end:null},
+  ]
+  assertEquals(nextPublishedShiftEnd(shifts,'X',Date.parse('2026-11-20T18:00:00Z')),'2026-11-21T00:30:00.000Z')
+  assertEquals(nextPublishedShiftEnd(shifts,'X',Date.parse('2026-11-21T01:00:00Z')),'2026-11-21T12:30:00.000Z')
+  assertEquals(nextPublishedShiftEnd(shifts,'Y',Date.parse('2026-11-20T18:00:00Z')),null)
 })

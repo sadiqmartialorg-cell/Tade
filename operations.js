@@ -22,9 +22,9 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     for(const [name,id] of [['mine','dailyMineTab'],['team','dailyTeamTab'],['series','dailySeriesTab']]){$(id).classList.toggle('active',name===tab);$(id).hidden=name==='series'&&!canManage()}
     $('dailyHeading').textContent=tab==='mine'?'My Activity':tab==='team'?'Team Activity':'Recurring Activities';
     $('dailySubtitle').textContent=tab==='mine'?'Today’s checks, one-time tasks, and upcoming work.':tab==='team'?'Completion, coverage, and extension requests across your team.':'Schedules, checks, and ownership changes.';
-    $('dailyFilters').hidden=tab!=='team';$('dailyList').hidden=tab==='series';$('dailySummary').hidden=tab==='series';$('recurringPanel').hidden=tab!=='series';$('newActivityButton').hidden=tab==='series';$('enablePushButton').hidden=tab!=='mine';
+    $('dailyFilters').hidden=tab!=='team';$('dailyList').hidden=tab==='series';$('dailySummary').hidden=tab==='series';$('newActivityButton').hidden=tab==='series';$('enablePushButton').hidden=tab!=='mine';
     if(!$('opsDate').value)$('opsDate').value=today();
-    try{await ensureBasics();$('dailySeriesTab').hidden=!canManage();select('oneCustomer',basics.customers);select('seriesCustomer',basics.customers);select('opsCustomerFilter',basics.customers,'All customers');select('opsOwnerFilter',basics.people.filter(p=>p.inTeam),'All owners');select('oneOwner',basics.people);select('oneApprover',basics.people);togglePrerequisite();if(tab==='series')await loadSeries();else await refreshDaily();}
+    try{await ensureBasics();$('dailySeriesTab').hidden=!canManage();select('opsCustomerFilter',basics.customers,'All customers');select('opsOwnerFilter',basics.people.filter(p=>p.inTeam),'All owners');if(tab==='series')await loadSeries();else await refreshDaily();}
     catch(e){$('dailyList').textContent=e.message;toast(e.message)}
   }
   async function refreshDaily(){if(!allowed('daily_activity'))return;const from=$('opsDate').value||today();$('dailyList').textContent='Loading activities…';try{activity=await call('activity_list',{from,to:addDays(from,13)});renderDaily()}catch(e){$('dailyList').textContent=e.message}}
@@ -38,17 +38,120 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     const counts={open:0,completed:0,missed:0,overdue:0,blocked:0,coverage:0};for(const x of rows){const s=status(x).toLowerCase().split(' ')[0];if(counts[s]!=null)counts[s]++}
     $('dailySummary').innerHTML=`<div class="ops-stat"><strong>${rows.length}</strong><span>Activities</span></div><div class="ops-stat"><strong>${counts.open+counts.overdue+counts.blocked+counts.coverage}</strong><span>Outstanding</span></div><div class="ops-stat"><strong>${counts.completed}</strong><span>Completed</span></div><div class="ops-stat alert"><strong>${counts.missed}</strong><span>Missed</span></div>`;
     $('dailyList').innerHTML=rows.length?rows.map(itemCard).join(''):'<div class="panel empty">No activities match this view.</div>';
-    select('onePrerequisite',activity.items.filter(x=>x.kind!=='check'&&x.status!=='cancelled'),'Select prerequisite');
+    select('quickPrerequisite',activity.items.filter(x=>x.kind!=='check'&&x.status!=='cancelled').map(x=>({id:x.id,name:x.title+' · '+(names.get(x.owner_id)||'Owner')})),'Select prerequisite');
   }
-  function toggleOneTimeForm(){$('oneTimePanel').hidden=!$('oneTimePanel').hidden;if(!$('oneTimePanel').hidden)$('oneTitle').focus()}
-  function togglePrerequisite(){const kind=$('oneKind').value;$('onePrerequisiteField').hidden=kind!=='dependency';$('onePrerequisite').required=kind==='dependency';if(basics){const people=basics.people.filter(p=>kind==='support'||p.inTeam&&(kind==='dependency'||p.tier>basics.tier));select('oneOwner',people)}}
-  async function submitOneTime(event){event.preventDefault();const button=event.submitter;button.disabled=true;$('oneTimeError').textContent='';try{await call('one_create',{kind:$('oneKind').value,customerId:$('oneCustomer').value,title:$('oneTitle').value,ownerId:$('oneOwner').value,approverId:$('oneApprover').value||getUser().id,dueAt:new Date($('oneDue').value).toISOString(),prerequisiteId:$('onePrerequisite').value,instructions:$('oneInstructions').value,steps:$('oneSteps').value.split('\n').map(s=>s.trim()).filter(Boolean),evidenceRequired:$('oneEvidence').checked});$('oneTimeForm').reset();$('oneTimePanel').hidden=true;toast('Activity created');await refreshDaily()}catch(e){$('oneTimeError').textContent=e.message}finally{button.disabled=false}}
-  function toggleSeriesSchedule(){$('seriesWeekdays').hidden=$('seriesSchedule').value!=='weekdays'}
-  function toggleSeriesDuration(){$('seriesDurationNumberField').hidden=!['weeks','months'].includes($('seriesDuration').value);$('seriesEndField').hidden=$('seriesDuration').value!=='date'}
-  function addCheckRow(){const index=$('seriesChecks').children.length+1;if(index>24)return toast('Maximum 24 checks');const options=basics.people.filter(p=>p.inTeam).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');const row=document.createElement('div');row.className='ops-check-row';row.innerHTML=`<input aria-label="Check label" placeholder="Check ${index}" maxlength="120" required><input type="time" aria-label="Window starts" required><input type="time" aria-label="Window ends" required><select aria-label="Primary owner" required><option value="">Primary owner</option>${options}</select><select aria-label="Backup owner"><option value="">No backup</option>${options}</select><button type="button" class="secondary" aria-label="Remove check" onclick="this.parentElement.remove()">×</button>`;$('seriesChecks').append(row)}
-  function seriesEndDate(start){const kind=$('seriesDuration').value,n=Number($('seriesDurationNumber').value);if(kind==='until')return null;if(kind==='date')return $('seriesEnd').value;if(!Number.isInteger(n)||n<1)throw Error('Enter a valid duration');if(kind==='weeks')return addDays(start,n*7-1);const [year,month,day]=start.split('-').map(Number);const target=new Date(Date.UTC(year,month-1+n,1));const lastDay=new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth()+1,0)).getUTCDate();const end=new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth(),Math.min(day,lastDay)));end.setUTCDate(end.getUTCDate()-1);return end.toISOString().slice(0,10)}
-  async function submitRecurring(event){event.preventDefault();const button=event.submitter;button.disabled=true;$('seriesError').textContent='';try{const startsOn=$('seriesStart').value,checks=[...$('seriesChecks').children].map(row=>{const [label,start,end,primary,backup]=row.querySelectorAll('input,select');return{label:label.value||'Check',start:start.value,end:end.value,primaryOwnerId:primary.value,backupOwnerId:backup.value||null}});if(!checks.length)throw Error('Add at least one check');await call('series_create',{customerId:$('seriesCustomer').value,title:$('seriesTitle').value,instructions:$('seriesInstructions').value,steps:$('seriesSteps').value.split('\n').map(s=>s.trim()).filter(Boolean),evidenceRequired:$('seriesEvidence').checked,scheduleKind:$('seriesSchedule').value,weekdays:[...$('seriesWeekdays').querySelectorAll('input:checked')].map(x=>Number(x.value)),startsOn,endsOn:seriesEndDate(startsOn),reminderMinutes:Number($('seriesReminder').value),checks});$('recurringForm').reset();$('seriesChecks').innerHTML='';addCheckRow();toast('Recurring activity created');await loadSeries()}catch(e){$('seriesError').textContent=e.message}finally{button.disabled=false}}
-  async function loadSeries(){try{series=await call('series_list');if(!$('seriesChecks').children.length)addCheckRow();renderSeries()}catch(e){$('seriesList').textContent=e.message}}
+  let quickOwnerState={assignment:[],support:[],dependency:[]},lastQuickType='assignment',quickDueRequest=0;
+  const quickMode=()=>$('quickAddForm').querySelector('[name="quickMode"]:checked')?.value||'once';
+  const quickOwnerIds=()=>$('quickType').value==='assignment'
+    ?[...$('quickAssignmentChoices').querySelectorAll('input:checked')].map(input=>input.value)
+    :$('quickSingleOwner').value?[$('quickSingleOwner').value]:[];
+  function quickClock(time){return new Date('2026-01-01T'+time+':00+05:30').toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'numeric',minute:'2-digit'})}
+  function quickDateTime(iso){return new Date(iso).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})+' IST'}
+  function openQuickAdd(){
+    if(!basics)return toast('Activity is still loading');
+    $('quickAddForm').reset();$('quickError').textContent='';$('quickMore').open=false;
+    $('quickType').value='assignment';lastQuickType='assignment';quickOwnerState={assignment:[],support:[],dependency:[getUser().id]};$('quickAssignmentChoices').replaceChildren();
+    $('quickStart').value=today();$('quickEnd').value='never';$('quickDueMode').value='shift';
+    $('quickRecurringOption').hidden=!canManage();
+    select('quickCustomer',basics.customers,'Choose customer');
+    $('quickCustomer').value=mode==='team'&&$('opsCustomerFilter').value||'';
+    $('quickCheckRows').replaceChildren();addQuickCheck();
+    toggleQuickMode();toggleQuickType();
+    if(!(basics.oneTimeOwners?.assignment||[]).length)$('quickMore').open=true;
+    $('quickAddDialog').showModal();$('quickTitle').focus();
+  }
+  function closeQuickAdd(){$('quickAddDialog').close()}
+  function toggleQuickMode(){
+    const repeat=quickMode()==='repeat';
+    $('quickOnceFields').hidden=repeat;$('quickRepeatFields').hidden=!repeat;
+    $('quickTypeWrap').hidden=repeat;$('quickScheduleOptions').hidden=!repeat;
+    $('quickPrerequisiteWrap').hidden=repeat||$('quickType').value!=='dependency';
+    $('quickCustomDue').required=!repeat&&$('quickDueMode').value==='custom';
+    $('quickSingleOwner').required=!repeat&&$('quickType').value!=='assignment';
+    for(const row of $('quickCheckRows').children){row.querySelector('.quick-check-time').required=repeat;row.querySelector('.quick-check-owner').required=repeat}
+    if(repeat)updateQuickRepeatSummary();else updateQuickDue();
+  }
+  function toggleQuickType(){
+    if(lastQuickType==='assignment')quickOwnerState.assignment=[...$('quickAssignmentChoices').querySelectorAll('input:checked')].map(input=>input.value);
+    else quickOwnerState[lastQuickType]=$('quickSingleOwner').value?[$('quickSingleOwner').value]:[];
+    const kind=$('quickType').value,ids=basics.oneTimeOwners?.[kind]||[],people=ids.map(id=>basics.people.find(p=>p.id===id)).filter(Boolean);
+    const assignment=kind==='assignment';$('quickAssignmentChoices').hidden=!assignment;$('quickSingleOwner').hidden=assignment;
+    $('quickOwnerLabel').textContent=assignment?'Assignees · reportees':kind==='support'?'Assignee · higher tier':'Assignee · same tier';
+    if(assignment){
+      $('quickAssignmentChoices').innerHTML=people.map(p=>`<label><input type="checkbox" value="${esc(p.id)}" onchange="updateQuickDue()" ${quickOwnerState.assignment.includes(p.id)?'checked':''}> ${esc(p.name)} <small>Tier ${esc(p.tier)}</small></label>`).join('');
+      $('quickOwnerHelp').textContent=people.length?'Select one or more reportees. Each receives their own task.':'No lower-tier reportees have Daily Activity access. Choose another task type.';
+    }else{
+      const prior=quickOwnerState[kind]?.[0]|| (kind==='dependency'&&ids.includes(getUser().id)?getUser().id:'');
+      $('quickSingleOwner').innerHTML='<option value="">Choose assignee</option>'+people.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} · Tier ${esc(p.tier)}</option>`).join('');
+      $('quickSingleOwner').value=ids.includes(prior)?prior:'';
+      $('quickOwnerHelp').textContent=people.length?'':'No eligible people with Daily Activity access.';
+    }
+    $('quickSingleOwner').required=!assignment&&quickMode()==='once';
+    $('quickPrerequisiteWrap').hidden=kind!=='dependency'||quickMode()==='repeat';
+    lastQuickType=kind;updateQuickDue();
+  }
+  async function updateQuickDue(){
+    if(quickMode()==='repeat')return;
+    const choice=$('quickDueMode').value,ids=quickOwnerIds(),ticket=++quickDueRequest;
+    $('quickCustomDueWrap').hidden=choice!=='custom';$('quickCustomDue').required=choice==='custom';
+    if(choice==='custom'){
+      const picked=$('quickCustomDue').value?new Date($('quickCustomDue').value+':00+05:30'):null;
+      $('quickDueSummary').textContent=picked&&Number.isFinite(picked.getTime())?quickDateTime(picked.toISOString()):'Choose a future date and time in IST.';return;
+    }
+    if(choice==='tomorrow'){
+      $('quickDueSummary').textContent='Due '+quickDateTime(addDays(today(),1)+'T18:00:00+05:30')+' for each assignee.';return;
+    }
+    if(!ids.length){$('quickDueSummary').textContent='Select an assignee to see the end of their next published shift.';return}
+    $('quickDueSummary').textContent='Checking published shifts…';
+    try{const rows=await call('due_preview',{kind:$('quickType').value,ownerIds:ids});if(ticket!==quickDueRequest)return;
+      $('quickDueSummary').innerHTML=rows.map(row=>{const name=basics.people.find(p=>p.id===row.ownerId)?.name||'Assignee';return `<span>${esc(name)}: ${row.dueAt?esc(quickDateTime(row.dueAt)):'<strong>No upcoming published shift · pick another deadline</strong>'}</span>`}).join('');
+    }catch(e){if(ticket===quickDueRequest)$('quickDueSummary').textContent=e.message}
+  }
+  function toggleQuickFrequency(){$('quickDaysWrap').hidden=$('quickFrequency').value!=='selected';updateQuickRepeatSummary()}
+  function updateQuickRepeatSummary(){
+    $('quickEndDateWrap').hidden=$('quickEnd').value!=='date';
+    $('quickRepeatSummary').textContent='Starts '+($('quickStart').value===today()?'today':$('quickStart').value||'on the selected date')+' · '+($('quickEnd').value==='date'?$('quickEndDate').value?'Ends '+$('quickEndDate').value:'Choose end date':'Until ended');
+  }
+  function quickWindow(start,minutes){const [h,m]=start.split(':').map(Number),total=h*60+m+Number(minutes),end=String(Math.floor(total/60)%24).padStart(2,'0')+':'+String(total%60).padStart(2,'0');return {end,label:quickClock(start)+'–'+quickClock(end)+(total>=1440?' next day':'')+' IST'}}
+  function refreshQuickChecks(){for(const [index,row] of [...$('quickCheckRows').children].entries()){
+    row.querySelector('.quick-check-title').textContent='Check '+(index+1);
+    row.querySelector('.quick-check-remove').hidden=$('quickCheckRows').children.length===1;
+    const start=row.querySelector('.quick-check-time').value,minutes=Number(row.querySelector('.quick-check-duration').value);
+    row.querySelector('.quick-check-window').textContent=start&&minutes>=5&&minutes<=1439?'Window · '+quickWindow(start,minutes).label:'Choose a time and a 5–1439 minute window';
+  }}
+  function addQuickCheck(){
+    if(!basics||$('quickCheckRows').children.length>=24)return;
+    const options=basics.people.filter(p=>p.inTeam).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    const row=document.createElement('div');row.className='ops-quick-check';
+    row.innerHTML=`<div class="ops-check-heading"><strong class="quick-check-title"></strong><button type="button" class="secondary quick-check-remove" aria-label="Remove check">Remove</button></div><div class="ops-quick-check-main"><label>Time · IST<input class="quick-check-time" type="time"></label><label>Owner<select class="quick-check-owner"><option value="">Choose owner</option>${options}</select></label></div><p class="quick-check-window hint"></p><details><summary>Window &amp; backup</summary><div class="ops-quick-check-main"><label>Window · minutes<input class="quick-check-duration" type="number" min="5" max="1439" value="60"></label><label>Backup<select class="quick-check-backup"><option value="">No backup</option>${options}</select></label></div><label>Check label · optional<input class="quick-check-label" maxlength="120" placeholder="e.g. Booking review"></label></details>`;
+    row.querySelector('.quick-check-owner').value=basics.people.some(p=>p.id===getUser().id&&p.inTeam)?getUser().id:'';
+    row.querySelector('.quick-check-remove').onclick=()=>{row.remove();refreshQuickChecks()};
+    row.addEventListener('input',refreshQuickChecks);$('quickCheckRows').append(row);refreshQuickChecks();toggleQuickMode();
+  }
+  async function submitQuickAdd(event){
+    event.preventDefault();const button=$('quickSave');button.disabled=true;$('quickError').textContent='';
+    try{
+      const common={customerId:$('quickCustomer').value,title:$('quickTitle').value.trim(),instructions:$('quickInstructions').value,steps:$('quickSteps').value.split('\n').map(x=>x.trim()).filter(Boolean),evidenceRequired:$('quickEvidence').checked};
+      if(quickMode()==='once'){
+        const ownerIds=quickOwnerIds();if(!ownerIds.length)throw Error('Choose an assignee');if(ownerIds.length>10)throw Error('Choose up to 10 reportees');
+        const kind=$('quickType').value,choice=$('quickDueMode').value;
+        if(kind==='dependency'&&!$('quickPrerequisite').value){$('quickMore').open=true;throw Error('Choose a prerequisite task')}
+        let dueAt=null;if(choice==='custom'){const picked=new Date($('quickCustomDue').value+':00+05:30');if(!Number.isFinite(picked.getTime()))throw Error('Choose a valid deadline in IST');dueAt=picked.toISOString()}
+        await call('one_create',{...common,kind,ownerIds,dueMode:choice,dueAt,prerequisiteId:kind==='dependency'?$('quickPrerequisite').value:null});
+        closeQuickAdd();toast(ownerIds.length>1?`${ownerIds.length} tasks added`:'Task added');
+        if(mode==='mine'&&!ownerIds.includes(getUser().id))await openDaily('team');else await refreshDaily();
+      }else{
+        const frequency=$('quickFrequency').value,days=frequency==='weekdays'?[1,2,3,4,5]:frequency==='selected'?[...$('quickDaysWrap').querySelectorAll('input:checked')].map(x=>Number(x.value)):[];
+        if(frequency==='selected'&&!days.length)throw Error('Select at least one repeat day');
+        if($('quickEnd').value==='date'&&!$('quickEndDate').value){$('quickMore').open=true;throw Error('Choose an end date')}
+        const checks=[...$('quickCheckRows').children].map((row,index)=>{const start=row.querySelector('.quick-check-time').value,minutes=Number(row.querySelector('.quick-check-duration').value);if(!start||!Number.isInteger(minutes)||minutes<5||minutes>1439)throw Error('Choose a valid time and window for each check');const owner=row.querySelector('.quick-check-owner').value,backup=row.querySelector('.quick-check-backup').value;if(!owner||backup===owner)throw Error('Choose an owner and a different backup');return{label:row.querySelector('.quick-check-label').value.trim()||`Check ${index+1}`,start,end:quickWindow(start,minutes).end,primaryOwnerId:owner,backupOwnerId:backup||null}});
+        if(!checks.length)throw Error('Add at least one check');
+        await call('series_create',{...common,scheduleKind:frequency==='daily'?'daily':'weekdays',weekdays:days,startsOn:$('quickStart').value,endsOn:$('quickEnd').value==='date'?$('quickEndDate').value:null,reminderMinutes:Number($('quickReminder').value),checks});
+        closeQuickAdd();toast('Recurring schedule added');await openDaily('series');
+      }
+    }catch(e){$('quickError').textContent=e.message}finally{button.disabled=false}
+  }
+  async function loadSeries(){try{series=await call('series_list');renderSeries()}catch(e){$('seriesList').textContent=e.message}}
   function renderSeries(){const customers=new Map(basics.customers.map(c=>[c.id,c.name]));$('seriesList').innerHTML=series.series.length?series.series.map(s=>`<article class="panel ops-series"><div><span class="ops-kind">${esc(s.schedule_kind)}</span><h3>${esc(s.title)}</h3><p class="ops-card-meta">${esc(customers.get(s.customer_id)||'Customer')} · ${esc(s.starts_on)} to ${esc(s.ends_on||'until ended')} · ${s.active?'Active':'Ended'}</p></div><div>${series.checks.filter(c=>c.series_id===s.id).map(c=>`<div class="ops-series-check"><strong>${esc(c.label)}</strong> ${esc(c.window_start.slice(0,5))}–${esc(c.window_end.slice(0,5))} IST · ${esc(names.get(c.primary_owner_id)||'Owner')}${c.backup_owner_id?' · Backup '+esc(names.get(c.backup_owner_id)):''}${canManage()&&s.active?` <button type="button" class="secondary" onclick="reassignCheck('${c.id}')">Change owner</button>`:''}</div>`).join('')}</div><button type="button" class="secondary" onclick="previewSeries('${s.id}')">Preview next 14 days</button>${canManage()&&s.active?`<button type="button" class="secondary" onclick="endActivitySeries('${s.id}')">End series</button>`:''}<div id="seriesPreview_${s.id}" class="ops-series-preview" hidden></div></article>`).join(''):'<div class="panel empty">No recurring schedules yet.</div>'}
   async function previewSeries(seriesId){const node=$('seriesPreview_'+seriesId);if(!node.hidden){node.hidden=true;return}node.hidden=false;node.textContent='Loading upcoming checks…';try{const rows=await call('series_preview',{seriesId});node.innerHTML=rows.length?rows.map(r=>`<p><strong>${esc(r.date)}</strong> · ${esc(r.title)} · ${esc(names.get(r.owner_id)||'Unassigned')} · ${esc(when(r.window_start_at))}–${esc(when(r.window_end_at))}</p>`).join(''):'No checks in the next 14 days.'}catch(e){node.textContent=e.message}}
   function dialog(title,help,fields,submit){$('opsDialogTitle').textContent=title;$('opsDialogHelp').textContent=help;$('opsDialogFields').innerHTML=fields;$('opsDialogError').textContent='';$('opsDialogForm').onsubmit=async event=>{event.preventDefault();$('opsDialogSubmit').disabled=true;try{await submit();$('opsDialog').close();await refreshDaily();if(mode==='series')await loadSeries()}catch(e){$('opsDialogError').textContent=e.message}finally{$('opsDialogSubmit').disabled=false}};$('opsDialog').showModal()}
@@ -75,6 +178,7 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     $('copyRosterButton').hidden=!roster.canManage;$('publishRosterButton').hidden=!roster.canManage;$('publishRosterButton').disabled=!roster.week.draft_revision;$('rosterShowAllWrap').hidden=!roster.canManage;$('rosterHistoryWrap').hidden=!roster.canManage;
     renderRoster();if(roster.canManage)await previewRoster();else $('rosterCoverage').innerHTML='';if(roster.canManage&&$('rosterHistoryWrap').open)await loadRosterHistory();
   }catch(e){$('rosterGrid').textContent=e.message;$('rosterError').textContent=e.message}}
+  function rosterThisWeek(){$('rosterWeek').value=monday(today());loadRoster()}
   function rosterStepWeek(direction){$('rosterWeek').value=addDays(monday($('rosterWeek').value||today()),direction*7);loadRoster()}
   function renderRoster(){if(!roster)return;const week=$('rosterWeek').value,end=addDays(week,6),manager=roster.canManage,all=roster.people;
     const leads=all.filter(p=>/team lead/i.test(p.job_role||''));const shown=manager&&!$('rosterShowAll').checked&&leads.length?leads:all;
@@ -108,6 +212,6 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
   async function enableWorklogPush(){try{if(!('serviceWorker'in navigator)||!('PushManager'in window))throw Error('Push is unavailable in this browser');const permission=await Notification.requestPermission();if(permission!=='granted')throw Error('Push permission was not granted');const {publicKey}=await call('push_key');if(!publicKey)throw Error('Web push is not configured yet');const registration=await navigator.serviceWorker.register('./worklog-sw.js');const raw=atob(publicKey.replace(/-/g,'+').replace(/_/g,'/')),key=Uint8Array.from(raw,c=>c.charCodeAt(0));const subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});await call('push_subscribe',{subscription:subscription.toJSON()});toast('Push notifications enabled')}catch(e){toast(e.message)}}
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&getUser()&&Date.now()-lastInboxCheck>5*60000)refreshInbox()});
   navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='worklog-notification'){if(event.data.target==='roster')openRoster();else openDaily('mine')}});
-  const api={onBootstrap(){if(getUser()){if(!$('seriesStart').value)$('seriesStart').value=today();if(!$('opsDate').value)$('opsDate').value=today();if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());refreshInbox();if(location.hash==='#roster'&&allowed('roster'))queueMicrotask(openRoster);else if(location.hash==='#daily_activity'&&allowed('daily_activity'))queueMicrotask(()=>openDaily('mine'))}},openDaily,openRoster,openInbox,refreshDaily,renderDaily,toggleOneTimeForm,togglePrerequisite,submitOneTime,toggleSeriesSchedule,toggleSeriesDuration,addCheckRow,submitRecurring,completeActivity,requestActivityExtension,decideActivityExtension,reassignCheck,endActivitySeries,previewSeries,loadRoster,renderRoster,rosterStepWeek,openRosterEditor,toggleRosterPreset,saveRosterEditor,copyRoster,reviewRosterGap,previewRoster,publishRoster,loadRosterHistory,refreshInbox,openInboxMessage,enableWorklogPush};
+  const api={onBootstrap(){if(getUser()){if(!$('opsDate').value)$('opsDate').value=today();if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());refreshInbox();if(location.hash==='#roster'&&allowed('roster'))queueMicrotask(openRoster);else if(location.hash==='#daily_activity'&&allowed('daily_activity'))queueMicrotask(()=>openDaily('mine'))}},openDaily,openRoster,openInbox,refreshDaily,renderDaily,openQuickAdd,closeQuickAdd,toggleQuickMode,toggleQuickType,updateQuickDue,toggleQuickFrequency,updateQuickRepeatSummary,addQuickCheck,submitQuickAdd,completeActivity,requestActivityExtension,decideActivityExtension,reassignCheck,endActivitySeries,previewSeries,loadRoster,renderRoster,rosterThisWeek,rosterStepWeek,openRosterEditor,toggleRosterPreset,saveRosterEditor,copyRoster,reviewRosterGap,previewRoster,publishRoster,loadRosterHistory,refreshInbox,openInboxMessage,enableWorklogPush};
   Object.assign(window,api);window.WorkLogOps=api;return api;
 }
