@@ -2,7 +2,7 @@
 
 ## Prepared changes
 
-- Migration `20261120130928_daily_activity_roster.sql` registers two sidebar modules and creates activity schedules, check instances, owner changes, extension requests, roster drafts/published shifts, inbox messages, push subscriptions, audit events, and a generation cursor.
+- Migration `20261120144359_daily_activity_roster.sql` registers two sidebar modules and creates activity schedules, check instances, owner changes, extension requests, roster drafts/published shifts, inbox messages, push subscriptions, audit events, and a generation cursor.
 - Existing MS Tracker customer IDs are required on every activity. The migration does not copy or modify customer rows.
 - User Admin assigns Daily Activity and Roster sidebar access using the existing user creation/edit controls. No account receives these grants automatically.
 - A service-role-only Edge Function handles user actions, roster publish, and reminder ticks. User actions validate Supabase Auth tokens and module grants. The tick validates a short-lived GitHub OIDC identity token.
