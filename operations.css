@@ -195,8 +195,11 @@ button.ops-roster-shift:hover,button.ops-roster-shift:focus-visible { border-col
 .ops-carryover li { margin:6px 0; }
 .ops-carryover summary { cursor:pointer; font-weight:700; }
 .ops-activity-instructions { white-space:pre-wrap; overflow-wrap:anywhere; }
-.ops-public-link { color:#164d99; text-decoration:none; font-weight:700; padding:8px; }
-.ops-public-link:hover { text-decoration:underline; }
+.roster-view-bar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
+.roster-view-bar .tabs { margin:0; }
+.roster-edit-actions:not(:has(button:not([hidden]))) { display:none; }
+.ops-public-link { display:inline-flex; gap:6px; align-items:center; padding:8px 12px; border:1px solid #b3cef2; border-radius:8px; background:#e6f0ff; color:#164d99; text-decoration:none; font-weight:700; }
+.ops-public-link:hover { background:#d7e8ff; text-decoration:underline; }
 .staffing-band.overlap.covered,.staffing-legend .overlap { background:#b9e6d4; color:#124e39; }
 .staffing-day .staffing-band { height:66px; position:relative; overflow:hidden; }
 .staffing-day .staffing-band>span:last-child { position:relative; }
