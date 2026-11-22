@@ -132,6 +132,27 @@ button.ops-roster-shift:hover,button.ops-roster-shift:focus-visible { border-col
 .ops-roster-coverage-head { justify-content:space-between; flex-wrap:wrap; margin-bottom:9px; }
 .ops-roster-coverage h3 { margin:0; font-size:16px; }
 .ops-roster-coverage-head span { color:var(--muted); font-size:12px; }
+.staffing-scroll { overflow-x:auto; padding:3px; }
+.staffing-row { display:grid; grid-template-columns:104px repeat(24,minmax(24px,1fr)); gap:3px; align-items:center; min-width:760px; margin:4px 0; }
+.staffing-row small { display:block; color:var(--muted); font-size:11px; }
+.staffing-axis { color:var(--muted); font-size:11px; text-align:center; }
+.staffing-axis span:first-child { text-align:left; }
+.staffing-band { min-height:28px; padding:0; border-radius:4px; font-size:11px; border:1px solid transparent; }
+.staffing-band[aria-pressed="true"] { border-color:var(--ink); outline:2px solid var(--blue); outline-offset:1px; }
+.staffing-band.covered,.staffing-legend .covered { background:#def2e8; color:#166044; }
+.staffing-band.partial,.staffing-legend .partial { background:#ffedc6; color:#744500; }
+.staffing-band.gap,.staffing-legend .gap { background:#fae5e5; color:#8f2e2e; }
+.staffing-legend { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 8px; color:var(--muted); font-size:12px; }
+.staffing-legend span { padding:3px 7px; border-radius:4px; }
+.staffing-detail { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); color:var(--muted); }
+.shift-handover-content { max-height:60vh; overflow:auto; }
+.shift-handover-content section { padding:10px 0; border-top:1px solid var(--line); }
+.shift-handover-content h3,.shift-handover-content p { margin:0 0 5px; }
+.shift-handover-content ul { margin:6px 0; padding-left:21px; }
+.shift-handover-content li { margin:0 0 8px; }
+.handover-history { color:var(--muted); margin:6px 0 0; font-size:12px; }
+.handover-history summary { cursor:pointer; color:var(--blue); font-weight:700; }
+.handover-history ol { margin:5px 0 0; padding-left:20px; }
 .ops-roster-alert,.ops-roster-early { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 12px; margin-top:8px; border-radius:9px; font-size:12px; }
 .ops-roster-alert { background:#fff0ed; color:#a02e26; }
 .ops-roster-early { background:#fff7e6; color:#875d12; }

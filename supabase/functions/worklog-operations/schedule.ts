@@ -45,3 +45,34 @@ export function coverage(item:any,shifts:any[],draft=false) {
   }
   return {covered:seen.length>0,primary:seen.filter(x=>x.id===item.owner_id),backup:seen.filter(x=>x.id===item.backup_owner_id),final:seen.length?Math.max(...seen.map(x=>x.end)):b}
 }
+
+export function staffingWeek(week:string, shifts:{user_id:string; work_date:string; draft_kind:string; draft_start:string|null; draft_end:string|null}[]) {
+  const spans = shifts.flatMap(shift => {
+    if (shift.draft_kind !== 'work' || !shift.draft_start || !shift.draft_end) return []
+    const range = startEnd(shift.work_date, shift.draft_start, shift.draft_end)
+    return [{id:shift.user_id, start:Date.parse(range.first), end:Date.parse(range.last)}]
+  })
+  return Array.from({length:7}, (_, day) => {
+    const date = addDays(week,day)
+    const midnight = Date.parse(istStamp(date,'00:00'))
+    const hours = Array.from({length:24}, (_, hour) => {
+      const start = midnight + hour * 3600000
+      const end = start + 3600000
+      const onShift = spans.filter(span => span.start < end && span.end > start)
+      const boundaries = [...new Set([start,end,...onShift.flatMap(span => [Math.max(start,span.start),Math.min(end,span.end)])])].sort((a,b) => a-b)
+      const gaps: [number,number][] = []
+      let coveredMinutes = 0
+      let peak = 0
+      for (let i=1;i<boundaries.length;i++) {
+        const left = boundaries[i-1]
+        const right = boundaries[i]
+        const count = new Set(onShift.filter(span => span.start <= left && span.end >= right).map(span => span.id)).size
+        if (count) coveredMinutes += (right-left)/60000
+        else gaps.push([(left-midnight)/60000,(right-midnight)/60000])
+        peak = Math.max(peak,count)
+      }
+      return {coveredMinutes,peak,people:[...new Set(onShift.map(span => span.id))],gaps}
+    })
+    return {date,hours}
+  })
+}

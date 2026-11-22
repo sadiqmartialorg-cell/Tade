@@ -1,8 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0'
 import webPush from 'npm:web-push@3.6.7'
 import {scheduledIdentity,vapidKeys} from './security.ts'
-import {addDays,istDate,istStamp,monday,startEnd,nextPublishedShiftEnd,ownerFor,buildCheckRows,coverage} from './schedule.ts'
+import {addDays,istDate,istStamp,monday,startEnd,nextPublishedShiftEnd,ownerFor,buildCheckRows,coverage,staffingWeek} from './schedule.ts'
 import {eligibleTaskOwners,type OneTimeKind} from './task-routing.ts'
+import {canCarryCheck,handoverShifts,type Transfer} from './handover.ts'
 
 const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods':'POST,OPTIONS' }
 const reply = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers:{ ...CORS, 'Content-Type':'application/json' } })
@@ -90,7 +91,65 @@ async function ensureChecks(from:string,to:string) {
   for(let i=0;i<rows.length;i+=100)await result(admin.from('worklog_activity_items').upsert(rows.slice(i,i+100),{onConflict:'check_id,scheduled_date',ignoreDuplicates:true}))
 }
 async function rosterRows(from:string,to:string) { return await result(admin.from('worklog_roster_shifts').select('*').gte('work_date',addDays(from,-1)).lte('work_date',addDays(to,1))) }
-async function rosterPreview(ctx:Context,week:string,teamId:string) {
+
+async function shiftHandover(ctx: Context) {
+  requireModule(ctx,'daily_activity')
+  const actor = ctx.actor
+  const now = new Date().toISOString()
+  const date = istDate(new Date(now))
+  const team = rosterTeamPeople(ctx,rosterTeamFor(ctx,actor.id))
+  const teamIds = team.map(person => person.id)
+  const roster = await result(admin.from('worklog_roster_shifts')
+    .select('user_id,work_date,published_kind,published_start,published_end')
+    .in('user_id',teamIds).eq('published_kind','work')
+    .gte('work_date',addDays(date,-7)).lte('work_date',date))
+  const shifts = handoverShifts(roster,actor.id,now)
+  if (!shifts) return {shift: null, incoming: [], completed: []}
+
+  const fields = 'id,title,owner_id,customer_id,status,due_at,window_start_at,window_end_at,completed_at,completed_by,handover_history,missed_at,updated_at'
+  const previousIds = shifts.previous.map(shift => shift.id)
+  const oldestRecentShift = shifts.earlier.at(-1)?.first || shifts.incoming.first
+  const query = () => admin.from('worklog_activity_items').select(fields).eq('kind','check')
+  const pending = () => query().is('completed_at',null).in('status',['open','missed'])
+  const [candidates,completed,accepted] = await Promise.all([
+    result(pending().in('owner_id',teamIds).lte('window_start_at',now)
+      .or(`window_end_at.gt.${oldestRecentShift},handover_history.not.is.null`).order('id')),
+    previousIds.length ? result(query().in('completed_by',previousIds).in('owner_id',teamIds)
+      .gte('completed_at',shifts.previous[0].first).lte('completed_at',now).order('completed_at')) : [],
+    result(query().eq('owner_id',actor.id).not('handover_history','is',null)
+      .or(`completed_at.is.null,completed_at.gte.${shifts.incoming.first}`).neq('status','cancelled').order('due_at')),
+  ])
+
+  // A concurrent completion, reassignment or handover invalidates the snapshot.
+  const incoming = [...accepted]
+  for (const item of candidates) {
+    if (!canCarryCheck(item,shifts)) continue
+    const move: Transfer = {
+      fromId: item.owner_id, fromName: ctx.byId.get(item.owner_id)?.display_name || 'Previous owner',
+      toId: actor.id, toName: actor.display_name, at: now, shiftStart: shifts.incoming.first,
+    }
+    const history = [...(item.handover_history || []), move]
+    const isMissed = item.status === 'missed' || Date.parse(item.due_at) <= Date.parse(now)
+    const updated = await result(admin.from('worklog_activity_items').update({
+      owner_id: actor.id, backup_owner_id: null, handover_history: history,
+      status: isMissed ? 'missed' : 'open', missed_at: isMissed ? item.missed_at || item.due_at : null,
+    }).eq('id',item.id).eq('owner_id',item.owner_id).eq('updated_at',item.updated_at)
+      .is('completed_at',null).in('status',['open','missed']).select(fields).maybeSingle())
+    if (updated) incoming.push(updated)
+  }
+  const done = completed.filter((item:any) => shifts.previous.some(shift =>
+    shift.id === item.completed_by && Date.parse(item.completed_at) < Date.parse(shift.last)))
+  const customerIds = [...new Set<string>([...incoming,...done].map(item => item.customer_id))]
+  const customers = customerIds.length ? await result(admin.from('adhoc_customers').select('id,name').in('id',customerIds)) : []
+  const customerNames = new Map(customers.map((customer:any) => [customer.id,customer.name]))
+  function reportRow(item:any) {
+    return {id:item.id,title:item.title,customer:customerNames.get(item.customer_id),dueAt:item.due_at,
+      completedAt:item.completed_at,completedBy:ctx.byId.get(item.completed_by)?.display_name,
+      history:item.handover_history || []}
+  }
+  return {shift:shifts.incoming, incoming:incoming.map(reportRow), completed:done.map(reportRow)}
+}
+async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffing=false) {
   requireRosterTeam(ctx,teamId,true)
   const until=addDays(week,6)
   const horizon=addDays(istDate(),13)
@@ -119,7 +178,8 @@ async function rosterPreview(ctx:Context,week:string,teamId:string) {
       if(c.final<Date.parse(item.window_end_at)&&c.final!==primaryEnd)early.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(c.final).toISOString(),reason:'Final eligible coverage ends early'})
     }
   }
-  return {gaps,early,checks:scoped.length}
+  const staffing = includeStaffing ? staffingWeek(week,shifts.filter((shift:any) => ids.has(shift.user_id))) : undefined
+  return {gaps,early,checks:scoped.length,staffing}
 }
 async function tick() {
   const today=istDate(),horizon=addDays(today,13)
@@ -130,13 +190,13 @@ async function tick() {
   }
   const now=Date.now(),from=addDays(today,-1),to=addDays(today,1)
   const [items,shifts,series,people]=await Promise.all([
-    result(admin.from('worklog_activity_items').select('id,kind,status,owner_id,backup_owner_id,window_start_at,window_end_at,due_at,series_id,title,creator_id').eq('status','open').lte('window_start_at',new Date(now).toISOString()).gte('scheduled_date',from).lte('scheduled_date',to).limit(500)),
+    result(admin.from('worklog_activity_items').select('id,kind,status,owner_id,backup_owner_id,window_start_at,window_end_at,due_at,series_id,title,creator_id,updated_at,handover_history').eq('status','open').lte('window_start_at',new Date(now).toISOString()).gte('scheduled_date',from).lte('scheduled_date',to).limit(500)),
     rosterRows(from,to),result(admin.from('worklog_activity_series').select('id,reminder_minutes')),
     result(admin.from('adhoc_profiles').select('id,manager_id,active')),
   ])
   const intervals=new Map(series.map((x:any)=>[x.id,x.reminder_minutes]));const managers=new Map(people.map((x:any)=>[x.id,x.manager_id]))
-  for(const item of items){if(item.kind!=='check')continue;const c=coverage(item,shifts),start=Date.parse(item.window_start_at),cutoff=c.final
-    if(now>=cutoff){await result(admin.from('worklog_activity_items').update({status:'missed',missed_at:new Date().toISOString()}).eq('id',item.id).eq('status','open'));const lead=managers.get(item.owner_id)||item.creator_id;if(lead)await note(lead,`missed:${item.id}`,'missed','Missed check',item.title,item.id);continue}
+  for(const item of items){if(item.kind!=='check')continue;const c=coverage(item,shifts),start=Date.parse(item.window_start_at),cutoff=item.handover_history?.length?Date.parse(item.due_at):c.final
+    if(now>=cutoff){const missed=await result(admin.from('worklog_activity_items').update({status:'missed',missed_at:new Date(now).toISOString()}).eq('id',item.id).eq('updated_at',item.updated_at).eq('status','open').is('completed_at',null).select('id').maybeSingle());const lead=managers.get(item.owner_id)||item.creator_id;if(missed&&lead)await note(lead,`missed:${item.id}`,'missed','Missed check',item.title,item.id);continue}
     const primaryOn=c.primary.some(x=>now>=x.start&&now<x.end)
     if(primaryOn){await note(item.owner_id,`open:${item.id}`,'check_open','Check window open',item.title,item.id);const interval=Number(intervals.get(item.series_id)||15)*60000;const slot=Math.floor((now-start)/interval);if(slot>0)await note(item.owner_id,`remind:${item.id}:${slot}`,'reminder','Check still open',item.title,item.id)}
     const backupOn=c.backup.some(x=>now>=x.start&&now<x.end);if(backupOn&&cutoff-now<=15*60000)await note(item.backup_owner_id,`backup:${item.id}`,'backup','Backup check near cutoff',item.title,item.id)
@@ -178,6 +238,7 @@ Deno.serve(async request=>{
     const {data:{user},error:authError}=await client.auth.getUser(token)
     if(authError||!user)throw Error('Invalid session')
     const ctx=await context(user.id),id=user.id
+    if(action==='shift_handover') return reply(await shiftHandover(ctx))
     if(action==='bootstrap'){
       const [customers,recipients]=await Promise.all([
         result(admin.from('adhoc_customers').select('id,name').eq('active',true).order('name')),
@@ -210,13 +271,17 @@ Deno.serve(async request=>{
       requireModule(ctx,'daily_activity');const from=String(args.from||today()),to=String(args.to||addDays(from,13));if(!validDate(from)||!validDate(to)||to<from||Date.parse(to)-Date.parse(from)>31*86400000)throw Error('Choose a range up to 31 days')
       const horizon=addDays(istDate(),13)
       if(to>horizon)await ensureChecks(from>horizon?from:addDays(horizon,1),to)
-      const [items,extensions,customers,shifts]=await Promise.all([result(admin.from('worklog_activity_items').select('*').gte('due_at',istStamp(addDays(from,-1),'00:00')).lte('due_at',istStamp(addDays(to,2),'00:00')).order('due_at').limit(1000)),result(admin.from('worklog_activity_extensions').select('*').eq('status','pending')),result(admin.from('adhoc_customers').select('id,name')),rosterRows(from,to)])
+      const [items,extensions,customers,shifts,carryover]=await Promise.all([result(admin.from('worklog_activity_items').select('*').gte('due_at',istStamp(addDays(from,-1),'00:00')).lte('due_at',istStamp(addDays(to,2),'00:00')).order('due_at').limit(1000)),result(admin.from('worklog_activity_extensions').select('*').eq('status','pending')),result(admin.from('adhoc_customers').select('id,name')),rosterRows(from,to),
+        from<=istDate()&&to>=istDate() ? result(admin.from('worklog_activity_items').select('*').eq('kind','check').eq('owner_id',id).not('handover_history','is',null).is('completed_at',null).in('status',['open','missed']).order('due_at')) : [],
+      ])
       const visible=items.filter((x:any)=>[x.owner_id,x.backup_owner_id,x.creator_id,x.approver_id].includes(id)||ctx.scope.has(x.owner_id))
+      const visibleIds = new Set(visible.map((item:any) => item.id))
+      visible.push(...carryover.filter((item:any) => !visibleIds.has(item.id)))
       for(const item of visible)if(item.kind==='check'&&item.status==='open'){
         const c=coverage(item,shifts),start=Date.parse(item.window_start_at)
         item.coverage_gap=!c.covered
         item.primary_cutoff_at=new Date(c.primary.length?Math.max(...c.primary.map(x=>x.end)):start).toISOString()
-        item.final_cutoff_at=new Date(c.final).toISOString()
+        item.final_cutoff_at=item.handover_history?.length?item.due_at:new Date(c.final).toISOString()
       }
       return reply({items:visible,extensions:extensions.filter((x:any)=>visible.some((i:any)=>i.id===x.item_id)),customers})
     }
@@ -248,8 +313,8 @@ Deno.serve(async request=>{
       const previous=await result(admin.from('worklog_activity_owner_changes').select('*').eq('check_id',check.id))
       const priorOwner=ownerFor(check,date,previous)
       await result(admin.from('worklog_activity_owner_changes').insert({check_id:check.id,effective_on:date,scope,primary_owner_id:primary.id,backup_owner_id:args.backupOwnerId||null,changed_by:id}))
-      const query=admin.from('worklog_activity_items').select('id,scheduled_date,owner_id').eq('check_id',check.id).eq('status','open');const rows=await result(scope==='date'?query.eq('scheduled_date',date):query.gte('scheduled_date',date))
-      const changes=await result(admin.from('worklog_activity_owner_changes').select('*').eq('check_id',check.id));for(const item of rows){const next=ownerFor(check,item.scheduled_date,changes);await result(admin.from('worklog_activity_items').update({owner_id:next.primary_owner_id,backup_owner_id:next.backup_owner_id}).eq('id',item.id));if(item.owner_id!==next.primary_owner_id)await note(next.primary_owner_id,`reassign:${item.id}:${primary.id}`,'reassignment','Check reassigned',String(item.scheduled_date),item.id)}
+      const query=admin.from('worklog_activity_items').select('id,scheduled_date,owner_id').eq('check_id',check.id).eq('status','open').is('handover_history',null);const rows=await result(scope==='date'?query.eq('scheduled_date',date):query.gte('scheduled_date',date))
+      const changes=await result(admin.from('worklog_activity_owner_changes').select('*').eq('check_id',check.id));for(const item of rows){const next=ownerFor(check,item.scheduled_date,changes);const saved=await result(admin.from('worklog_activity_items').update({owner_id:next.primary_owner_id,backup_owner_id:next.backup_owner_id}).eq('id',item.id).eq('status','open').is('handover_history',null).select('id').maybeSingle());if(saved&&item.owner_id!==next.primary_owner_id)await note(next.primary_owner_id,`reassign:${item.id}:${primary.id}`,'reassignment','Check reassigned',String(item.scheduled_date),item.id)}
       await audit('owner_changed',id,null,{checkId:check.id,date,scope,previousPrimary:priorOwner.primary_owner_id,previousBackup:priorOwner.backup_owner_id,primary:primary.id,backup:args.backupOwnerId||null});return reply({updated:rows.length})
     }
     if(action==='one_create'){
@@ -286,7 +351,7 @@ Deno.serve(async request=>{
     }
     if(action==='item_complete'){
       requireModule(ctx,'daily_activity');const item=await result(admin.from('worklog_activity_items').select('*').eq('id',args.itemId).single());if(![item.owner_id,item.backup_owner_id].includes(id))throw Error('Only an assigned owner can complete this activity')
-      if(!['open','missed'].includes(item.status))throw Error('This activity is already closed')
+      if(item.completed_at||!['open','missed'].includes(item.status))throw Error('This activity is already closed')
       if(item.prerequisite_id){const first=await result(admin.from('worklog_activity_items').select('status').eq('id',item.prerequisite_id).single());if(first.status!=='completed')throw Error('Complete the prerequisite first')}
       const steps=Array.isArray(args.completedSteps)?args.completedSteps.map(Number):[],all=Array.isArray(item.steps)?item.steps.length:0
       if(all&&steps.length!==all)throw Error('Complete every checklist step')
@@ -294,7 +359,8 @@ Deno.serve(async request=>{
       if(item.kind==='check'&&Date.now()<Date.parse(item.window_start_at))throw Error('This check has not opened yet')
       const late=item.status==='missed'||item.kind==='check'&&Date.now()>Date.parse(item.due_at)
       if(late&&!recovery)throw Error('Enter a reason for late recovery')
-      await result(admin.from('worklog_activity_items').update({status:late?'missed':'completed',missed_at:late?item.missed_at||new Date().toISOString():null,completed_by:id,completed_at:new Date().toISOString(),completed_steps:steps,evidence:evidence||null,recovery_reason:recovery||null}).eq('id',item.id))
+      const saved=await result(admin.from('worklog_activity_items').update({status:late?'missed':'completed',missed_at:late?item.missed_at||new Date().toISOString():null,completed_by:id,completed_at:new Date().toISOString(),completed_steps:steps,evidence:evidence||null,recovery_reason:recovery||null}).eq('id',item.id).eq('updated_at',item.updated_at).is('completed_at',null).select('id').maybeSingle())
+      if(!saved)throw Error('This activity changed. Refresh and try again.')
       await audit(late?'late_recovery':'completed',id,item.id,{evidence:!!evidence,recoveryReason:recovery||null});if(item.creator_id&&item.creator_id!==id)await note(item.creator_id,`completed:${item.id}`,'completed','Activity completed',item.title,item.id);return reply({ok:true})
     }
     if(action==='item_cancel'){requireModule(ctx,'daily_activity');const item=await result(admin.from('worklog_activity_items').select('*').eq('id',args.itemId).single());if(item.creator_id!==id&&(ctx.tier>2||!ctx.scope.has(item.owner_id)))throw Error('Only the creator or a lead in scope can cancel');await result(admin.from('worklog_activity_items').update({status:'cancelled'}).eq('id',item.id).eq('status','open'));await audit('cancelled',id,item.id);return reply({ok:true})}
@@ -371,7 +437,7 @@ Deno.serve(async request=>{
     if(action==='roster_preview'){
       const week=String(args.week||''),teamId=String(args.teamId||'')
       if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
-      return reply(await rosterPreview(ctx,week,teamId))
+      return reply(await rosterPreview(ctx,week,teamId,true))
     }
     if(action==='roster_publish'){
       const week=String(args.week||''),teamId=String(args.teamId||'')
