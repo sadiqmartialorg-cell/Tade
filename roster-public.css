@@ -1,0 +1,38 @@
+:root{font:15px/1.45 system-ui,sans-serif;color:#172338;background:#f3f6fa;--muted:#5d6b7f;--line:#dae3ee;--accent:#1763c5}
+*{box-sizing:border-box}
+body{margin:0}
+[hidden]{display:none!important}
+.brand{display:flex;align-items:center;gap:14px;padding:15px max(18px,calc((100% - 1160px)/2));background:#13243b;color:#dae8fa}
+.brand a{color:#fff;font-size:16px;font-weight:800;text-decoration:none}
+.brand span{padding-left:14px;border-left:1px solid #52637e}
+main{max-width:1196px;margin:auto;padding:22px 18px}
+.toolbar,.sheet-head,.view-switch,.week-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.toolbar,.sheet-head{justify-content:space-between}
+.toolbar{margin-bottom:12px}
+button,select{font:inherit;color:#172338;background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+button{cursor:pointer;font-weight:650}
+button[aria-pressed="true"]{background:#e6f0ff;color:#0c55af;border-color:#b3cef2}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+label{display:flex;align-items:center;gap:8px;font-weight:650}
+.sheet{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.sheet-head{padding:15px 18px;border-bottom:1px solid var(--line)}
+h1{font-size:21px;margin:0}
+.sheet-head p,.note{font-size:13px;color:var(--muted);margin:3px 0 0}
+.data{overflow:auto}
+table{width:100%;min-width:800px;border-collapse:collapse;text-align:left;font-size:13px}
+th,td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+thead th{color:var(--muted)}
+thead small{display:block}
+.team th{background:#f0f5fd;color:#233951;font-size:13px}
+tbody th[scope="row"]{min-width:136px}
+.shift{display:inline-block;padding:4px 7px;border-radius:6px;background:#e9f3fd;color:#174471;white-space:nowrap}
+.shift.overnight{background:#eeecff;color:#48367e}
+.shift small{font-weight:750}
+.empty,.error{padding:15px 18px;margin:0}
+.empty{color:var(--muted)}
+.error{color:#a13931}
+.live-list{list-style:none;margin:0;padding:0}
+.live-list li{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line)}
+.live-list small{display:block;color:var(--muted)}
+.note{margin-top:12px}

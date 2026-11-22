@@ -4,8 +4,9 @@ import {scheduledIdentity,vapidKeys} from './security.ts'
 import {addDays,istDate,istStamp,monday,startEnd,nextPublishedShiftEnd,ownerFor,buildCheckRows,coverage,staffingWeek} from './schedule.ts'
 import {eligibleTaskOwners,type OneTimeKind} from './task-routing.ts'
 import {canCarryCheck,handoverShifts,type Transfer} from './handover.ts'
+import {editableRosterMembers,rosterTeam,shiftAt,shiftSpans,shiftRecord,type WorkingShift} from './roster-routing.ts'
 
-const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods':'POST,OPTIONS' }
+const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods':'GET,POST,OPTIONS' }
 const reply = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers:{ ...CORS, 'Content-Type':'application/json' } })
 const projectUrl = Deno.env.get('SUPABASE_URL') ?? ''
 const publishable = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
@@ -14,6 +15,14 @@ const admin = createClient(projectUrl, secret, { auth:{ persistSession:false, au
 const validDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s+'T00:00:00Z'))
 const uuid = (v: unknown): v is string => typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 const result = async (query: PromiseLike<{data:any,error:any}>) => { const {data,error}=await query; if(error) throw error; return data }
+async function collectRows(query:()=>any) {
+  const rows:any[]=[]
+  for(let start=0;;start+=500){
+    const batch=await result(query().range(start,start+499))
+    rows.push(...batch)
+    if(batch.length<500)return rows
+  }
+}
 type Person = { id:string; display_name:string; manager_id:string|null; job_role:string|null; active:boolean; tier?:number }
 type Context = { actor:Person; people:Person[]; byId:Map<string,Person>; scope:Set<string>; tier:number; grants:Set<string> }
 
@@ -40,34 +49,43 @@ function requireManager(ctx:Context,key:'daily_activity'|'roster') { requireModu
 function requirePerson(ctx:Context,id:unknown) { if(!uuid(id)||!ctx.byId.get(id)?.active)throw Error('Choose an active user');return ctx.byId.get(id)! }
 function assertInTeam(ctx:Context,id:string) { if(!ctx.scope.has(id))throw Error('Choose a person in your reporting team') }
 function rosterTeamFor(ctx:Context,personId:string) {
-  let person=ctx.byId.get(personId),last=person
-  const visited=new Set<string>()
-  while(person&&!visited.has(person.id)){
-    visited.add(person.id)
-    if((person.tier??9999)<=2)return person.id
-    last=person
-    person=person.manager_id?ctx.byId.get(person.manager_id):undefined
-  }
-  return last?.id||personId
+  return rosterTeam(ctx.byId,personId)
 }
 function rosterTeamPeople(ctx:Context,teamId:string) {
-  return ctx.people.filter(p=>p.active&&rosterTeamFor(ctx,p.id)===teamId)
+  return ctx.people.filter(person=>person.active && rosterTeamFor(ctx,person.id)===teamId)
+}
+function editablePeople(ctx:Context,teamId:string) {
+  return editableRosterMembers(ctx.people,ctx.actor.id,ctx.tier,teamId)
 }
 function allowedRosterTeams(ctx:Context) {
-  const scoped=ctx.tier<=2?ctx.people.filter(p=>p.active&&ctx.scope.has(p.id)):[ctx.actor]
-  const ids=new Set(scoped.map(p=>rosterTeamFor(ctx,p.id)))
-  return [...ids].map(id=>{
-    const members=rosterTeamPeople(ctx,id)
-    return {id,name:(ctx.byId.get(id)?.display_name||'Team')+' team',
-      leadCount:members.filter(p=>/team lead/i.test(p.job_role||'')).length}
-  }).sort((a,b)=>b.leadCount-a.leadCount||a.name.localeCompare(b.name))
+  const ownTeam = rosterTeamFor(ctx,ctx.actor.id)
+  const managers = ctx.people.filter(person=>person.active && (person.tier??9999)<=2)
+  const visible = new Set([ownTeam])
+  if (ctx.tier<=2) visible.add(ctx.actor.id)
+  if (ctx.tier===1) for (const person of managers) { if(ctx.scope.has(person.id)) visible.add(person.id) }
+  if (ctx.tier===2) for (const person of managers) { if(person.tier===2) visible.add(person.id) }
+  return [...visible].map(id=>({
+    id,name:id===ctx.actor.id&&ctx.tier<=2?'My team':(ctx.byId.get(id)?.display_name||'Team')+' team',
+    canManage:id===ctx.actor.id&&ctx.tier<=2,
+  })).sort((a,b)=>Number(b.canManage)-Number(a.canManage)||a.name.localeCompare(b.name))
 }
 function requireRosterTeam(ctx:Context,teamId:unknown,manage=false) {
   requireModule(ctx,'roster')
-  if(manage&&ctx.tier>2)throw Error('Tier 1 or 2 access required')
   const team=allowedRosterTeams(ctx).find(t=>t.id===teamId)
-  if(!team)throw Error('This roster team is outside your reporting scope')
+  if(!team||manage&&!team.canManage)throw Error('This roster is outside your editing scope')
   return team
+}
+function activityTeams(ctx:Context) {
+  return ctx.people.filter(person=>person.active && (person.tier??9999)<=2 &&
+    (person.id===ctx.actor.id || ctx.tier===1 && ctx.scope.has(person.id)))
+    .map(person=>({id:person.id,name:person.display_name+' team'}))
+    .sort((a,b)=>Number(b.id===ctx.actor.id)-Number(a.id===ctx.actor.id)||a.name.localeCompare(b.name))
+}
+function canManageSeries(ctx:Context,series:any,checks:any[]) {
+  if(ctx.tier>2)return false
+  if(series.roster_team_id)return activityTeams(ctx).some(team=>team.id===series.roster_team_id)
+  return series.created_by===ctx.actor.id || checks.some(check=>check.series_id===series.id &&
+    [check.primary_owner_id,check.backup_owner_id].some(owner=>ctx.scope.has(owner)))
 }
 async function note(recipient:string,key:string,kind:string,title:string,body:string,itemId:string|null=null,target='daily_activity') {
   const {error}=await admin.from('worklog_inbox').insert({recipient_id:recipient,delivery_key:key,kind,title,body,item_id:itemId,target})
@@ -88,9 +106,103 @@ async function ensureChecks(from:string,to:string) {
   if(!checks.length)return
   const changes=await result(admin.from('worklog_activity_owner_changes').select('*').in('check_id',checks.map((c:any)=>c.id)))
   const rows=buildCheckRows(series,checks,changes,from,to)
+  const assigned=rows.filter(row=>row.roster_team_id)
+  if(assigned.length) {
+    const routing=await loadShiftRouting(from,to)
+    for(const row of assigned)setInitialAssignment(row,routing)
+  }
   for(let i=0;i<rows.length;i+=100)await result(admin.from('worklog_activity_items').upsert(rows.slice(i,i+100),{onConflict:'check_id,scheduled_date',ignoreDuplicates:true}))
 }
 async function rosterRows(from:string,to:string) { return await result(admin.from('worklog_roster_shifts').select('*').gte('work_date',addDays(from,-1)).lte('work_date',addDays(to,1))) }
+
+type ShiftRouting = Awaited<ReturnType<typeof loadShiftRouting>>
+type ActivityCheck = {
+  id?:string
+  roster_team_id:string|null
+  owner_id:string|null
+  backup_owner_id:string|null
+  window_start_at:string
+  window_end_at:string
+  roster_assignment?:Record<string,unknown>|null
+  coverage_gap?:boolean|null
+  handover_history?:Transfer[]|null
+  updated_at?:string
+}
+function publishedShift(row:any):WorkingShift {
+  return {user_id:row.user_id, work_date:row.work_date, kind:row.published_kind,
+    start_time:row.published_start,end_time:row.published_end,
+    publication_team:row.published_team_id,publication_version:row.published_version}
+}
+async function readRosterPeople():Promise<Person[]> {
+  const [people,roles]=await Promise.all([
+    result(admin.from('adhoc_profiles').select('id,display_name,manager_id,job_role,active')),
+    result(admin.from('tade_roles').select('name,rank').eq('is_access_role',false)),
+  ])
+  const rank=new Map(roles.map((role:any)=>[role.name,role.rank]))
+  return people.map((person:Person)=>({...person,tier:rank.get(person.job_role)??9999}))
+}
+async function loadShiftRouting(from:string,to:string,rows?:WorkingShift[],people?:Person[]) {
+  const [staff,grants,working]=await Promise.all([
+    people||readRosterPeople(),
+    result(admin.from('worklog_user_modules').select('user_id').eq('module_key','daily_activity')),
+    rows||rosterRows(from,to).then(rows=>rows.map(publishedShift)),
+  ])
+  const enabled=new Set(grants.map((grant:any)=>grant.user_id))
+  const byId=new Map<string,Person>(staff.map(person=>[person.id,person]))
+  const teams=new Map<string,ReturnType<typeof shiftSpans>>()
+  for(const shift of shiftSpans(working)) {
+    if(!enabled.has(shift.userId)||!byId.get(shift.userId)?.active)continue
+    const team=rosterTeam(byId,shift.userId)
+    const spans=teams.get(team)||[]
+    spans.push(shift)
+    teams.set(team,spans)
+  }
+  return {teams,byId}
+}
+function setInitialAssignment(item:ActivityCheck,routing:ShiftRouting) {
+  const shift=shiftAt(routing.teams.get(item.roster_team_id!)||[],Date.parse(item.window_start_at))
+  item.owner_id=shift?.userId||null
+  item.backup_owner_id=null
+  item.roster_assignment=shiftRecord(shift)
+  item.coverage_gap=!shift
+}
+async function reconcileRosterChecks(items:ActivityCheck[],routing:ShiftRouting,now=Date.now()) {
+  for(const item of items) {
+    const opens=Date.parse(item.window_start_at), closes=Date.parse(item.window_end_at)
+    if(!item.roster_team_id||now>=closes)continue
+    const shifts=routing.teams.get(item.roster_team_id)||[]
+    const gap=!shiftAt(shifts,opens)
+    const underway=now>=opens
+    const shift=shiftAt(shifts,underway?now:opens,underway?item.owner_id:null)
+    const assignment=shiftRecord(shift)
+    // Keep the last accountable owner available for the handover when no one is active.
+    const nextOwner=shift?.userId||(underway?item.owner_id:null)
+    const nextAssignment=assignment||(underway?item.roster_assignment:null)
+    const history=item.handover_history||[]
+    const move=underway&&item.owner_id&&nextOwner&&item.owner_id!==nextOwner&&shift?{
+      fromId:item.owner_id,fromName:routing.byId.get(item.owner_id)?.display_name||'Previous assignee',
+      toId:nextOwner,toName:routing.byId.get(nextOwner)?.display_name||'Assignee',
+      at:new Date(now).toISOString(),shiftStart:new Date(shift.start).toISOString(),
+    }:null
+    const sameShift=JSON.stringify(Object.entries(item.roster_assignment||{}).sort())===
+      JSON.stringify(Object.entries(nextAssignment||{}).sort())
+    if(nextOwner===item.owner_id&&!item.backup_owner_id&&sameShift&&item.coverage_gap===gap)continue
+    const saved=await result(admin.from('worklog_activity_items').update({
+      owner_id:nextOwner,backup_owner_id:null,roster_assignment:nextAssignment,
+      coverage_gap:gap,handover_history:move?[...history,move]:item.handover_history,
+      due_at:item.window_end_at,
+    }).eq('id',item.id).eq('updated_at',item.updated_at).eq('status','open')
+      .is('completed_at',null).select('*').maybeSingle())
+    if(saved)Object.assign(item,saved)
+  }
+}
+async function refreshRosterAssignments(from:string,to:string,teamId?:string) {
+  const query=admin.from('worklog_activity_items').select('*').eq('kind','check').eq('status','open')
+    .not('roster_team_id','is',null).gte('scheduled_date',from).lte('scheduled_date',to)
+  if(teamId)query.eq('roster_team_id',teamId)
+  const items=await result(query)
+  if(items.length)await reconcileRosterChecks(items,await loadShiftRouting(from,to))
+}
 
 async function shiftHandover(ctx: Context) {
   requireModule(ctx,'daily_activity')
@@ -105,8 +217,9 @@ async function shiftHandover(ctx: Context) {
     .gte('work_date',addDays(date,-7)).lte('work_date',date))
   const shifts = handoverShifts(roster,actor.id,now)
   if (!shifts) return {shift: null, incoming: [], completed: []}
+  await refreshRosterAssignments(addDays(date,-1),date,rosterTeamFor(ctx,actor.id))
 
-  const fields = 'id,title,owner_id,customer_id,status,due_at,window_start_at,window_end_at,completed_at,completed_by,handover_history,missed_at,updated_at'
+  const fields = 'id,title,owner_id,customer_id,status,due_at,window_start_at,window_end_at,completed_at,completed_by,handover_history,missed_at,updated_at,roster_team_id,roster_assignment'
   const previousIds = shifts.previous.map(shift => shift.id)
   const oldestRecentShift = shifts.earlier.at(-1)?.first || shifts.incoming.first
   const query = () => admin.from('worklog_activity_items').select(fields).eq('kind','check')
@@ -124,6 +237,8 @@ async function shiftHandover(ctx: Context) {
   const incoming = [...accepted]
   for (const item of candidates) {
     if (!canCarryCheck(item,shifts)) continue
+    if (item.roster_team_id && (item.roster_team_id!==rosterTeamFor(ctx,actor.id) ||
+      (item.status==='open' && Date.parse(item.window_end_at)>Date.parse(now)))) continue
     const move: Transfer = {
       fromId: item.owner_id, fromName: ctx.byId.get(item.owner_id)?.display_name || 'Previous owner',
       toId: actor.id, toName: actor.display_name, at: now, shiftStart: shifts.incoming.first,
@@ -152,34 +267,70 @@ async function shiftHandover(ctx: Context) {
 async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffing=false) {
   requireRosterTeam(ctx,teamId,true)
   const until=addDays(week,6)
-  const horizon=addDays(istDate(),13)
-  if(until>horizon)await ensureChecks(week>horizon?week:addDays(horizon,1),until)
-  const userIds=rosterTeamPeople(ctx,teamId).map(p=>p.id)
+  const today=istDate()
+  if(until>=today)await ensureChecks(week>=today?week:today,until)
+  const editableIds=editablePeople(ctx,teamId).map(person=>person.id)
+  const teamIds=new Set(rosterTeamPeople(ctx,teamId).map(person=>person.id))
   const [items,published,effective,customers]=await Promise.all([
-    result(admin.from('worklog_activity_items').select('id,title,customer_id,scheduled_date,owner_id,backup_owner_id,window_start_at,window_end_at,status').eq('kind','check').eq('status','open').gte('scheduled_date',week).lte('scheduled_date',until)),
+    result(admin.from('worklog_activity_items').select('id,title,customer_id,scheduled_date,owner_id,backup_owner_id,window_start_at,window_end_at,status,roster_team_id').eq('kind','check').gte('scheduled_date',week).lte('scheduled_date',until)),
     rosterRows(week,until),
-    result(admin.rpc('worklog_roster_effective_shifts',{p_team:teamId,p_week:week,p_user_ids:userIds})),
+    editableIds.length?result(admin.rpc('worklog_roster_effective_shifts',{p_team:teamId,p_week:week,p_user_ids:editableIds})):[],
     result(admin.from('adhoc_customers').select('id,name')),
   ])
-  const ids=new Set(userIds)
-  const shifts=published.filter((s:any)=>s.published_kind&&!(s.week_start===week&&ids.has(s.user_id)))
-    .map((s:any)=>({...s,draft_kind:s.published_kind,draft_start:s.published_start,draft_end:s.published_end}))
-    .concat(effective.map((s:any)=>({user_id:s.user_id,work_date:s.work_date,
-      draft_kind:s.kind,draft_start:s.start_time,draft_end:s.end_time})))
+  const shifts:WorkingShift[]=published.filter((row:any)=>row.published_kind&&!(row.week_start===week&&editableIds.includes(row.user_id)))
+    .map(publishedShift).concat(effective)
+  const draftCoverage=shifts.map(shift=>({user_id:shift.user_id,work_date:shift.work_date,
+    draft_kind:shift.kind||'off',draft_start:shift.start_time,draft_end:shift.end_time}))
+  const routing=await loadShiftRouting(week,until,shifts,ctx.people)
   const names=new Map(customers.map((x:any)=>[x.id,x.name]))
-  const gaps=[] as any[];const early=[] as any[]
-  const scoped=items.filter((item:any)=>ids.has(item.owner_id)||ids.has(item.backup_owner_id))
-  for(const item of scoped){const c=coverage(item,shifts,true)
-    const personId=ids.has(item.owner_id)?item.owner_id:ids.has(item.backup_owner_id)?item.backup_owner_id:null
-    if(!c.covered)gaps.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,reason:'No eligible primary or backup shift'})
-    else {
-      const primaryEnd=c.primary.length?Math.max(...c.primary.map(x=>x.end)):null
-      if(primaryEnd!==null&&primaryEnd<Date.parse(item.window_end_at))early.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(primaryEnd).toISOString(),reason:'Primary shift ends early'})
-      if(c.final<Date.parse(item.window_end_at)&&c.final!==primaryEnd)early.push({id:item.id,userId:personId,date:item.scheduled_date,customer:names.get(item.customer_id),check:item.title,deadline:new Date(c.final).toISOString(),reason:'Final eligible coverage ends early'})
+  const gaps=[] as any[], early=[] as any[], markers=[] as any[]
+  const scoped=items.filter((item:any)=>item.status!=='cancelled' &&
+    (item.roster_team_id===teamId || !item.roster_team_id&&(teamIds.has(item.owner_id)||teamIds.has(item.backup_owner_id))))
+  for(const item of scoped){
+    const time=Date.parse(item.window_start_at)
+    const spans=routing.teams.get(teamId)||[]
+    const match=item.roster_team_id?shiftAt(spans,time):null
+    const legacy=!item.roster_team_id?coverage(item,draftCoverage,true):null
+    const eligible=match?.userId||legacy?.primary.find(span=>span.start<=time&&time<span.end)?.id||
+      legacy?.backup.find(span=>span.start<=time&&time<span.end)?.id||null
+    const userId=eligible&&editableIds.includes(eligible)?eligible:editableIds.includes(item.owner_id)?item.owner_id:null
+    const entry={id:item.id,userId,date:item.scheduled_date,time:item.window_start_at,customer:names.get(item.customer_id),
+      check:item.title,assignee:ctx.byId.get(eligible||'')?.display_name||null,
+      people:spans.filter(span=>span.start<=time&&time<span.end).map(span=>ctx.byId.get(span.userId)?.display_name),
+      reason:eligible?null:'No eligible shift at the scheduled time'}
+    markers.push(entry)
+    if(item.status!=='open'||Date.parse(item.window_end_at)<=Date.now())continue
+    if(!eligible&&(item.roster_team_id||!legacy?.covered))gaps.push(entry)
+    else if(match&&match.end<Date.parse(item.window_end_at)&&!shiftAt(spans,match.end)){
+      early.push({...entry,deadline:new Date(match.end).toISOString(),reason:'Eligible coverage ends before the window closes'})
     }
   }
-  const staffing = includeStaffing ? staffingWeek(week,shifts.filter((shift:any) => ids.has(shift.user_id))) : undefined
-  return {gaps,early,checks:scoped.length,staffing}
+  const staffing=includeStaffing?staffingWeek(week,draftCoverage.filter(shift=>teamIds.has(shift.user_id))):undefined
+  return {gaps,early,checks:scoped.length,staffing,markers:includeStaffing?markers:undefined}
+}
+async function publicRoster(week:string) {
+  const current=monday(istDate())
+  if(!validDate(week)||monday(week)!==week||week<addDays(current,-28)||week>addDays(current,56))
+    throw Error('Choose a roster week within the published range')
+  const [people,working,publications]=await Promise.all([
+    readRosterPeople(),
+    result(admin.from('worklog_roster_shifts').select('user_id,work_date,published_kind,published_start,published_end')
+      .eq('published_kind','work').gte('work_date',addDays(week,-1)).lte('work_date',addDays(week,6))),
+    result(admin.from('worklog_roster_weeks').select('published_at').in('week_start',[addDays(week,-7),week])
+      .eq('state','published').order('published_at',{ascending:false}).limit(1)),
+  ])
+  const profiles=new Map<string,Person>(people.map(person=>[person.id,person]))
+  const staff=working.flatMap((row:any)=>{
+    const person=profiles.get(row.user_id)
+    if(!person?.active||!row.published_start||!row.published_end)return []
+    const manager=profiles.get(rosterTeam(profiles,person.id))
+    const shift=startEnd(row.work_date,row.published_start,row.published_end)
+    return [{name:person.display_name,team:manager&&manager.id!==person.id?manager.display_name:'Operations',
+      date:row.work_date,startsAt:shift.first,endsAt:shift.last}]
+  })
+  const now=new Date().toISOString()
+  return {week,currentWeek:current,updatedAt:publications[0]?.published_at||null,now,shifts:staff,
+    teams:people.filter(person=>person.active&&person.tier===2).map(person=>person.display_name)}
 }
 async function tick() {
   const today=istDate(),horizon=addDays(today,13)
@@ -190,15 +341,16 @@ async function tick() {
   }
   const now=Date.now(),from=addDays(today,-1),to=addDays(today,1)
   const [items,shifts,series,people]=await Promise.all([
-    result(admin.from('worklog_activity_items').select('id,kind,status,owner_id,backup_owner_id,window_start_at,window_end_at,due_at,series_id,title,creator_id,updated_at,handover_history').eq('status','open').lte('window_start_at',new Date(now).toISOString()).gte('scheduled_date',from).lte('scheduled_date',to).limit(500)),
+    result(admin.from('worklog_activity_items').select('id,kind,status,owner_id,backup_owner_id,window_start_at,window_end_at,due_at,series_id,title,creator_id,updated_at,handover_history,roster_team_id,roster_assignment,coverage_gap').eq('status','open').lte('window_start_at',new Date(now).toISOString()).gte('scheduled_date',from).lte('scheduled_date',to).limit(500)),
     rosterRows(from,to),result(admin.from('worklog_activity_series').select('id,reminder_minutes')),
     result(admin.from('adhoc_profiles').select('id,manager_id,active')),
   ])
+  if(items.some((item:any)=>item.roster_team_id))await reconcileRosterChecks(items,await loadShiftRouting(from,to,shifts.map(publishedShift)),now)
   const intervals=new Map(series.map((x:any)=>[x.id,x.reminder_minutes]));const managers=new Map(people.map((x:any)=>[x.id,x.manager_id]))
-  for(const item of items){if(item.kind!=='check')continue;const c=coverage(item,shifts),start=Date.parse(item.window_start_at),cutoff=item.handover_history?.length?Date.parse(item.due_at):c.final
+  for(const item of items){if(item.kind!=='check')continue;const c=coverage(item,shifts),start=Date.parse(item.window_start_at),cutoff=item.roster_team_id?Date.parse(item.window_end_at):item.handover_history?.length?Date.parse(item.due_at):c.final
     if(now>=cutoff){const missed=await result(admin.from('worklog_activity_items').update({status:'missed',missed_at:new Date(now).toISOString()}).eq('id',item.id).eq('updated_at',item.updated_at).eq('status','open').is('completed_at',null).select('id').maybeSingle());const lead=managers.get(item.owner_id)||item.creator_id;if(missed&&lead)await note(lead,`missed:${item.id}`,'missed','Missed check',item.title,item.id);continue}
-    const primaryOn=c.primary.some(x=>now>=x.start&&now<x.end)
-    if(primaryOn){await note(item.owner_id,`open:${item.id}`,'check_open','Check window open',item.title,item.id);const interval=Number(intervals.get(item.series_id)||15)*60000;const slot=Math.floor((now-start)/interval);if(slot>0)await note(item.owner_id,`remind:${item.id}:${slot}`,'reminder','Check still open',item.title,item.id)}
+    const primaryOn=item.owner_id&&c.primary.some(x=>now>=x.start&&now<x.end)
+    if(primaryOn){await note(item.owner_id,`open:${item.id}:${item.owner_id}`,'check_open','Check window open',item.title,item.id);const interval=Number(intervals.get(item.series_id)||15)*60000;const slot=Math.floor((now-start)/interval);if(slot>0)await note(item.owner_id,`remind:${item.id}:${item.owner_id}:${slot}`,'reminder','Check still open',item.title,item.id)}
     const backupOn=c.backup.some(x=>now>=x.start&&now<x.end);if(backupOn&&cutoff-now<=15*60000)await note(item.backup_owner_id,`backup:${item.id}`,'backup','Backup check near cutoff',item.title,item.id)
   }
   const due=await result(admin.from('worklog_activity_items').select('id,kind,status,owner_id,title,due_at').neq('kind','check').eq('status','open').lte('due_at',new Date(now+15*60000).toISOString()).order('due_at',{ascending:false}).limit(300))
@@ -225,6 +377,12 @@ async function tick() {
 
 Deno.serve(async request=>{
   if(request.method==='OPTIONS')return new Response('ok',{headers:CORS})
+  if(request.method==='GET'){
+    const url=new URL(request.url)
+    if(url.searchParams.get('view')!=='public_roster')return reply({error:'Not found'},404)
+    try{return reply(await publicRoster(url.searchParams.get('week')||monday(istDate())))}
+    catch(error){return reply({error:error instanceof Error?error.message:'Unable to load the roster'},400)}
+  }
   if(request.method!=='POST')return reply({error:'Method not allowed'},405)
   try{
     const body=await request.json(),action=String(body.action||''),args=body.args||{}
@@ -248,7 +406,7 @@ Deno.serve(async request=>{
       const oneTimeOwners=Object.fromEntries((['assignment','support','dependency'] as OneTimeKind[])
         .map(kind=>[kind,eligibleTaskOwners(ctx.people,ctx.actor.id,ctx.scope,kind)
           .filter(person=>canReceive.has(person.id)).map(person=>person.id)]))
-      return reply({customers,people:ctx.people.filter(p=>p.active).map(p=>({id:p.id,name:p.display_name,tier:p.tier,managerId:p.manager_id,inTeam:ctx.scope.has(p.id)})),tier:ctx.tier,canManage:ctx.tier<=2,oneTimeOwners})
+      return reply({customers,people:ctx.people.filter(p=>p.active).map(p=>({id:p.id,name:p.display_name,tier:p.tier,managerId:p.manager_id,inTeam:ctx.scope.has(p.id)})),tier:ctx.tier,canManage:ctx.tier<=2,activityTeams:ctx.grants.has('daily_activity')?activityTeams(ctx):[],oneTimeOwners})
     }
     if(action==='due_preview'){
       requireModule(ctx,'daily_activity')
@@ -268,54 +426,111 @@ Deno.serve(async request=>{
     if(action==='push_subscribe'){const s=args.subscription;if(!s?.endpoint||!s.keys?.p256dh||!s.keys?.auth)throw Error('Invalid push subscription');await result(admin.from('worklog_push_subscriptions').upsert({user_id:id,endpoint:s.endpoint,p256dh:s.keys.p256dh,auth:s.keys.auth,updated_at:new Date().toISOString()},{onConflict:'endpoint'}));return reply({ok:true})}
     if(action==='push_unsubscribe'){await result(admin.from('worklog_push_subscriptions').delete().eq('user_id',id).eq('endpoint',args.endpoint));return reply({ok:true})}
     if(action==='activity_list'){
-      requireModule(ctx,'daily_activity');const from=String(args.from||today()),to=String(args.to||addDays(from,13));if(!validDate(from)||!validDate(to)||to<from||Date.parse(to)-Date.parse(from)>31*86400000)throw Error('Choose a range up to 31 days')
-      const horizon=addDays(istDate(),13)
-      if(to>horizon)await ensureChecks(from>horizon?from:addDays(horizon,1),to)
-      const [items,extensions,customers,shifts,carryover]=await Promise.all([result(admin.from('worklog_activity_items').select('*').gte('due_at',istStamp(addDays(from,-1),'00:00')).lte('due_at',istStamp(addDays(to,2),'00:00')).order('due_at').limit(1000)),result(admin.from('worklog_activity_extensions').select('*').eq('status','pending')),result(admin.from('adhoc_customers').select('id,name')),rosterRows(from,to),
-        from<=istDate()&&to>=istDate() ? result(admin.from('worklog_activity_items').select('*').eq('kind','check').eq('owner_id',id).not('handover_history','is',null).is('completed_at',null).in('status',['open','missed']).order('due_at')) : [],
+      requireModule(ctx,'daily_activity')
+      const date=String(args.date||args.from||istDate())
+      if(!validDate(date))throw Error('Choose a valid activity date')
+      const today=istDate(),next=addDays(date,1)
+      if(date>=today)await ensureChecks(date,date)
+      if(date===today)await refreshRosterAssignments(date,date,rosterTeamFor(ctx,id))
+      const teamScope=activityTeams(ctx).map(team=>team.id)
+      const owners=[...ctx.scope].join(',')
+      const membership=[`owner_id.in.(${owners})`,`backup_owner_id.eq.${id}`,`creator_id.eq.${id}`,`approver_id.eq.${id}`]
+      if(teamScope.length)membership.push(`roster_team_id.in.(${teamScope.join(',')})`)
+      const scoped=()=>admin.from('worklog_activity_items').select('*').or(membership.join(','))
+      const [checks,oneTime,customers,shifts,carryover,prerequisites]=await Promise.all([
+        collectRows(()=>scoped().eq('kind','check').eq('scheduled_date',date).order('id')),
+        collectRows(()=>scoped().neq('kind','check').gte('due_at',istStamp(date,'00:00')).lt('due_at',istStamp(next,'00:00')).order('id')),
+        result(admin.from('adhoc_customers').select('id,name')),
+        rosterRows(date,date),
+        date===today?collectRows(()=>admin.from('worklog_activity_items').select('*').eq('kind','check').eq('owner_id',id)
+          .lt('scheduled_date',date).not('handover_history','is',null).is('completed_at',null).in('status',['open','missed']).order('id')):[],
+        result(admin.from('worklog_activity_items').select('id,title,owner_id').neq('kind','check').neq('status','cancelled')
+          .in('owner_id',[...ctx.scope]).gte('due_at',istStamp(today,'00:00')).lt('due_at',istStamp(addDays(today,14),'00:00'))
+          .order('due_at').limit(200)),
       ])
-      const visible=items.filter((x:any)=>[x.owner_id,x.backup_owner_id,x.creator_id,x.approver_id].includes(id)||ctx.scope.has(x.owner_id))
-      const visibleIds = new Set(visible.map((item:any) => item.id))
-      visible.push(...carryover.filter((item:any) => !visibleIds.has(item.id)))
-      for(const item of visible)if(item.kind==='check'&&item.status==='open'){
+      const items=[...checks,...oneTime].filter(item=>[item.owner_id,item.backup_owner_id,item.creator_id,item.approver_id].includes(id)||
+        ctx.scope.has(item.owner_id)||teamScope.includes(item.roster_team_id))
+      const visible=[...items,...carryover]
+      for(const item of checks)if(item.kind==='check'&&!item.roster_team_id&&item.status==='open'){
         const c=coverage(item,shifts),start=Date.parse(item.window_start_at)
-        item.coverage_gap=!c.covered
-        item.primary_cutoff_at=new Date(c.primary.length?Math.max(...c.primary.map(x=>x.end)):start).toISOString()
-        item.final_cutoff_at=item.handover_history?.length?item.due_at:new Date(c.final).toISOString()
+        item.coverage_gap=!c.primary.some(span=>span.start<=start&&start<span.end)&&!c.backup.some(span=>span.start<=start&&start<span.end)
       }
-      return reply({items:visible,extensions:extensions.filter((x:any)=>visible.some((i:any)=>i.id===x.item_id)),customers})
+      const ids=visible.map(item=>item.id)
+      const dependencyIds=[...new Set(visible.map(item=>item.prerequisite_id).filter(Boolean))]
+      const [extensions,dependencies]=await Promise.all([
+        ids.length?result(admin.from('worklog_activity_extensions').select('*').in('item_id',ids).eq('status','pending')):[],
+        dependencyIds.length?result(admin.from('worklog_activity_items').select('id,status').in('id',dependencyIds)):[],
+      ])
+      return reply({items,carryover,extensions,customers,prerequisites,dependencies})
     }
-    if(action==='series_list'){requireModule(ctx,'daily_activity');const rows=await result(admin.from('worklog_activity_series').select('*').order('created_at',{ascending:false}).limit(200));const checks=rows.length?await result(admin.from('worklog_activity_checks').select('*').in('series_id',rows.map((x:any)=>x.id))):[];const shown=rows.filter((s:any)=>s.created_by===id||checks.some((c:any)=>c.series_id===s.id&&[c.primary_owner_id,c.backup_owner_id].some(x=>x&&ctx.scope.has(x))));return reply({series:shown,checks:checks.filter((c:any)=>shown.some((s:any)=>s.id===c.series_id))})}
-    if(action==='series_preview'){
-      requireModule(ctx,'daily_activity');const series=await result(admin.from('worklog_activity_series').select('*').eq('id',args.seriesId).single())
-      const checks=await result(admin.from('worklog_activity_checks').select('*').eq('series_id',series.id))
-      if(series.created_by!==id&&!checks.some((c:any)=>[c.primary_owner_id,c.backup_owner_id].some(x=>x&&ctx.scope.has(x))))throw Error('Series is outside your team')
-      const changes=checks.length?await result(admin.from('worklog_activity_owner_changes').select('*').in('check_id',checks.map((c:any)=>c.id))):[]
-      return reply(buildCheckRows([series],checks,changes,istDate(),addDays(istDate(),13)).map(row=>({check_id:row.check_id,date:row.scheduled_date,title:row.title,owner_id:row.owner_id,window_start_at:row.window_start_at,window_end_at:row.window_end_at})))
+    if(action==='series_list'){
+      requireManager(ctx,'daily_activity')
+      const rows=await result(admin.from('worklog_activity_series').select('*').order('created_at',{ascending:false}).limit(200))
+      const checks=rows.length?await result(admin.from('worklog_activity_checks').select('*').in('series_id',rows.map((x:any)=>x.id)).order('check_number')):[]
+      const shown=rows.filter((series:any)=>canManageSeries(ctx,series,checks)).map((series:any)=>({
+        ...series,roster_team_name:ctx.byId.get(series.roster_team_id)?.display_name||null,
+      }))
+      return reply({series:shown,checks:checks.filter((check:any)=>shown.some((series:any)=>series.id===check.series_id))})
+    }
+    if(action==='series_preview'||action==='series_adopt'||action==='series_end'){
+      requireManager(ctx,'daily_activity')
+      const series=await result(admin.from('worklog_activity_series').select('*').eq('id',args.seriesId).single())
+      const checks=await result(admin.from('worklog_activity_checks').select('*').eq('series_id',series.id).order('check_number'))
+      if(!canManageSeries(ctx,series,checks))throw Error('Series is outside your team')
+      if(action==='series_adopt'){
+        if(series.roster_team_id)throw Error('This schedule already follows a roster')
+        if(!activityTeams(ctx).some(team=>team.id===args.teamId))throw Error('Choose a team in your scope')
+        await result(admin.from('worklog_activity_series').update({roster_team_id:args.teamId}).eq('id',series.id).is('roster_team_id',null))
+        await result(admin.from('worklog_activity_items').update({roster_team_id:args.teamId}).eq('series_id',series.id)
+          .eq('status','open').is('completed_at',null))
+        await refreshRosterAssignments(addDays(istDate(),-1),addDays(istDate(),13),args.teamId)
+        await audit('series_roster_adopted',id,null,{seriesId:series.id,teamId:args.teamId})
+        return reply({ok:true})
+      }
+      if(action==='series_end'){
+        const on=String(args.endsOn||istDate())
+        if(!validDate(on))throw Error('Choose a valid end date')
+        await result(admin.from('worklog_activity_series').update({ends_on:on<series.starts_on?series.starts_on:on,active:false}).eq('id',series.id))
+        await result(admin.from('worklog_activity_items').update({status:'cancelled'}).eq('series_id',series.id).gt('scheduled_date',on).eq('status','open'))
+        await audit('series_ended',id,null,{seriesId:series.id,endsOn:on})
+        return reply({ok:true})
+      }
+      const changes=checks.length&&!series.roster_team_id?await result(admin.from('worklog_activity_owner_changes').select('*').in('check_id',checks.map((c:any)=>c.id))):[]
+      const from=istDate(),to=addDays(from,13)
+      const rows=buildCheckRows([series],checks,changes,from,to)
+      if(series.roster_team_id){
+        const routing=await loadShiftRouting(from,to)
+        for(const row of rows)setInitialAssignment(row,routing)
+      }
+      return reply(rows.map(row=>({date:row.scheduled_date,title:row.title,owner_id:row.owner_id,
+        window_start_at:row.window_start_at,window_end_at:row.window_end_at,coverage_gap:row.coverage_gap})))
     }
     if(action==='series_create'){
-      requireManager(ctx,'daily_activity');const customer=await result(admin.from('adhoc_customers').select('id').eq('id',args.customerId).eq('active',true).maybeSingle());if(!customer)throw Error('Choose an active MS customer')
+      requireManager(ctx,'daily_activity')
+      const team=activityTeams(ctx).find(team=>team.id===args.teamId)
+      if(!team)throw Error('Choose a team in your scope')
+      const customer=await result(admin.from('adhoc_customers').select('id').eq('id',args.customerId).eq('active',true).maybeSingle())
+      if(!customer)throw Error('Choose an active MS customer')
       const start=String(args.startsOn||''),end=args.endsOn?String(args.endsOn):null,kind=String(args.scheduleKind||''),days=Array.isArray(args.weekdays)?args.weekdays.map(Number):[]
-      if(!validDate(start)||start<istDate()||end&&!validDate(end)||end&&end<start||!['daily','weekdays','weekly','monthly'].includes(kind)||kind==='weekdays'&&(!days.length||days.some((d:number)=>d<0||d>6)))throw Error('Choose a valid future schedule and duration')
-      const checks=Array.isArray(args.checks)?args.checks:[];if(!checks.length||checks.length>24)throw Error('Add 1–24 checks per day')
-      const steps=Array.isArray(args.steps)?args.steps.map(String).filter(Boolean):[];if(steps.length>20)throw Error('Use at most 20 checklist steps')
-      const title=String(args.title||'').trim(),instructions=String(args.instructions||'').trim();if(!title||title.length>160)throw Error('Enter an activity title')
-      for(const c of checks){requirePerson(ctx,c.primaryOwnerId);assertInTeam(ctx,c.primaryOwnerId);await assertDailyRecipient(c.primaryOwnerId);if(c.backupOwnerId){requirePerson(ctx,c.backupOwnerId);assertInTeam(ctx,c.backupOwnerId);await assertDailyRecipient(c.backupOwnerId)}if(!/^\d{2}:\d{2}$/.test(c.start)||!/^\d{2}:\d{2}$/.test(c.end)||c.start===c.end)throw Error('Choose a valid time window for every check')}
-      const series=await result(admin.from('worklog_activity_series').insert({customer_id:customer.id,title,instructions,steps,evidence_required:!!args.evidenceRequired,schedule_kind:kind,weekdays:days,monthly_day:kind==='monthly'?Number(args.monthlyDay||start.slice(8)):null,starts_on:start,ends_on:end,created_by:id,reminder_minutes:Number(args.reminderMinutes||15)}).select('*').single())
-      try{await result(admin.from('worklog_activity_checks').insert(checks.map((c:any,i:number)=>({series_id:series.id,check_number:i+1,label:String(c.label||`Check ${i+1}`).trim(),window_start:c.start,window_end:c.end,primary_owner_id:c.primaryOwnerId,backup_owner_id:c.backupOwnerId||null}))))}
-      catch(e){await admin.from('worklog_activity_series').delete().eq('id',series.id);throw e}
-      await ensureChecks(start,addDays(start,13));await audit('series_created',id,null,{seriesId:series.id,title});return reply(series)
-    }
-    if(action==='series_end'){requireManager(ctx,'daily_activity');const on=String(args.endsOn||istDate());if(!validDate(on))throw Error('Choose a valid end date');const existing=await result(admin.from('worklog_activity_series').select('id,starts_on,created_by').eq('id',args.seriesId).single());const checks=await result(admin.from('worklog_activity_checks').select('primary_owner_id').eq('series_id',existing.id));if(existing.created_by!==id&&!checks.some((c:any)=>ctx.scope.has(c.primary_owner_id)))throw Error('Series is outside your team');await result(admin.from('worklog_activity_series').update({ends_on:on<existing.starts_on?existing.starts_on:on,active:false}).eq('id',args.seriesId));await result(admin.from('worklog_activity_items').update({status:'cancelled'}).eq('series_id',args.seriesId).gt('scheduled_date',on).eq('status','open'));await audit('series_ended',id,null,{seriesId:args.seriesId,endsOn:on});return reply({ok:true})}
-    if(action==='owner_change'){
-      requireManager(ctx,'daily_activity');const check=await result(admin.from('worklog_activity_checks').select('*').eq('id',args.checkId).single());const series=await result(admin.from('worklog_activity_series').select('created_by').eq('id',check.series_id).single());if(series.created_by!==id&&!ctx.scope.has(check.primary_owner_id))throw Error('Check is outside your team');const date=String(args.date||''),scope=String(args.scope||'');if(!validDate(date)||!['date','future'].includes(scope))throw Error('Choose a date and edit scope')
-      const primary=requirePerson(ctx,args.primaryOwnerId);assertInTeam(ctx,primary.id);await assertDailyRecipient(primary.id);if(args.backupOwnerId){const backup=requirePerson(ctx,args.backupOwnerId);assertInTeam(ctx,backup.id);await assertDailyRecipient(backup.id);if(backup.id===primary.id)throw Error('Backup must differ from primary')}
-      const previous=await result(admin.from('worklog_activity_owner_changes').select('*').eq('check_id',check.id))
-      const priorOwner=ownerFor(check,date,previous)
-      await result(admin.from('worklog_activity_owner_changes').insert({check_id:check.id,effective_on:date,scope,primary_owner_id:primary.id,backup_owner_id:args.backupOwnerId||null,changed_by:id}))
-      const query=admin.from('worklog_activity_items').select('id,scheduled_date,owner_id').eq('check_id',check.id).eq('status','open').is('handover_history',null);const rows=await result(scope==='date'?query.eq('scheduled_date',date):query.gte('scheduled_date',date))
-      const changes=await result(admin.from('worklog_activity_owner_changes').select('*').eq('check_id',check.id));for(const item of rows){const next=ownerFor(check,item.scheduled_date,changes);const saved=await result(admin.from('worklog_activity_items').update({owner_id:next.primary_owner_id,backup_owner_id:next.backup_owner_id}).eq('id',item.id).eq('status','open').is('handover_history',null).select('id').maybeSingle());if(saved&&item.owner_id!==next.primary_owner_id)await note(next.primary_owner_id,`reassign:${item.id}:${primary.id}`,'reassignment','Check reassigned',String(item.scheduled_date),item.id)}
-      await audit('owner_changed',id,null,{checkId:check.id,date,scope,previousPrimary:priorOwner.primary_owner_id,previousBackup:priorOwner.backup_owner_id,primary:primary.id,backup:args.backupOwnerId||null});return reply({updated:rows.length})
+      if(!validDate(start)||start<istDate()||end&&(!validDate(end)||end<start)||!['daily','weekdays','weekly','monthly'].includes(kind)||kind==='weekdays'&&(!days.length||days.some((day:number)=>!Number.isInteger(day)||day<0||day>6)))throw Error('Choose a valid schedule and duration')
+      const checks=Array.isArray(args.checks)?args.checks:[]
+      if(!checks.length||checks.length>24)throw Error('Add 1–24 checks per day')
+      const steps=Array.isArray(args.steps)?args.steps.map(String).filter(Boolean):[]
+      if(steps.length>20)throw Error('Use at most 20 checklist steps')
+      const title=String(args.title||'').trim(),instructions=String(args.instructions||'').trim()
+      if(!title||title.length>160)throw Error('Enter an activity title')
+      const time=/^([01]\d|2[0-3]):[0-5]\d$/
+      for(const check of checks)if(!time.test(check.start)||!time.test(check.end)||check.start===check.end)
+        throw Error('Choose a valid time and completion window for each check')
+      const series=await result(admin.from('worklog_activity_series').insert({customer_id:customer.id,roster_team_id:team.id,title,instructions,steps,
+        evidence_required:!!args.evidenceRequired,schedule_kind:kind,weekdays:days,monthly_day:kind==='monthly'?Number(args.monthlyDay||start.slice(8)):null,
+        starts_on:start,ends_on:end,created_by:id,reminder_minutes:Number(args.reminderMinutes||15)}).select('*').single())
+      try{await result(admin.from('worklog_activity_checks').insert(checks.map((check:any,index:number)=>({
+        series_id:series.id,check_number:index+1,label:String(check.label||`Check ${index+1}`).trim(),window_start:check.start,window_end:check.end,
+      }))))}catch(error){await admin.from('worklog_activity_series').delete().eq('id',series.id);throw error}
+      await ensureChecks(start,addDays(start,13))
+      await audit('series_created',id,null,{seriesId:series.id,title,teamId:team.id})
+      return reply(series)
     }
     if(action==='one_create'){
       requireModule(ctx,'daily_activity');const kind=String(args.kind||'');if(!['assignment','support','dependency'].includes(kind))throw Error('Choose a task type')
@@ -382,28 +597,27 @@ Deno.serve(async request=>{
       const week=String(args.week||monday(istDate()))
       if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
       const teams=allowedRosterTeams(ctx),teamId=String(args.teamId||teams[0]?.id||'')
-      requireRosterTeam(ctx,teamId)
-      const teamPeople=rosterTeamPeople(ctx,teamId)
-      const people=teamPeople
-      const userIds=new Set(people.map(p=>p.id))
+      const team=requireRosterTeam(ctx,teamId)
+      const editable=editablePeople(ctx,teamId).map(person=>person.id)
+      const privateParent=ctx.tier===2&&teamId!==id&&rosterTeamFor(ctx,id)===teamId
+      const people=privateParent?[ctx.actor]:rosterTeamPeople(ctx,teamId)
+      if(teamId===id&&!people.some(person=>person.id===id))people.unshift(ctx.actor)
+      const ids=[...new Set(people.map(person=>person.id))]
       const [published,draft,weekRow]=await Promise.all([
-        result(admin.from('worklog_roster_shifts').select('user_id,work_date,published_kind,published_start,published_end').eq('week_start',week)),
-        ctx.tier<=2?result(admin.from('worklog_roster_draft_shifts').select('user_id,work_date,kind,start_time,end_time').eq('team_id',teamId).eq('week_start',week)):Promise.resolve([]),
+        ids.length?result(admin.from('worklog_roster_shifts').select('user_id,work_date,published_kind,published_start,published_end').eq('week_start',week).in('user_id',ids)):[],
+        editable.length?result(admin.from('worklog_roster_draft_shifts').select('user_id,work_date,kind,start_time,end_time').eq('team_id',teamId).eq('week_start',week).in('user_id',editable)):[],
         result(admin.from('worklog_roster_team_weeks').select('*').eq('team_id',teamId).eq('week_start',week).maybeSingle()),
       ])
-      return reply({
-        teamId,teams,people,
-        week:weekRow||{active_version:0,draft_base_version:0,draft_revision:0,draft_mode:'overlay',published_at:null},
-        publishedRows:published.filter((s:any)=>userIds.has(s.user_id)&&s.published_kind),
-        draftRows:draft.filter((s:any)=>userIds.has(s.user_id)),
-        canManage:ctx.tier<=2,
-      })
+      const empty={active_version:0,draft_base_version:0,draft_revision:0,draft_mode:'overlay',published_at:null}
+      const safeWeek=weekRow&& !team.canManage?{...empty,active_version:weekRow.active_version,published_at:weekRow.published_at}:weekRow
+      return reply({teamId,teams,people,editable,week:safeWeek||empty,
+        publishedRows:published.filter((shift:any)=>shift.published_kind),draftRows:draft,canManage:team.canManage})
     }
     if(action==='roster_save'){
       const week=String(args.week||''),teamId=String(args.teamId||'')
       requireRosterTeam(ctx,teamId,true)
       const owner=requirePerson(ctx,args.userId)
-      if(rosterTeamFor(ctx,owner.id)!==teamId)throw Error('Choose a person in this roster team')
+      if(!editablePeople(ctx,teamId).some(person=>person.id===owner.id))throw Error('Only direct reports can be edited')
       const dates=Array.isArray(args.dates)?args.dates.map(String):[]
       if(!validDate(week)||monday(week)!==week||!dates.length||dates.length>7
         ||dates.some((date:string)=>!validDate(date)||date<week||date>addDays(week,6)))
@@ -425,7 +639,7 @@ Deno.serve(async request=>{
       const week=String(args.week||''),teamId=String(args.teamId||'')
       requireRosterTeam(ctx,teamId,true)
       if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
-      const people=rosterTeamPeople(ctx,teamId)
+      const people=editablePeople(ctx,teamId)
       const revision=await result(admin.rpc('worklog_roster_copy_previous',{
         p_team:teamId,p_week:week,p_actor:id,
         p_expected_version:Number(args.expectedVersion||0),
@@ -445,13 +659,16 @@ Deno.serve(async request=>{
       if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
       const preview=await rosterPreview(ctx,week,teamId)
       if(preview.gaps.length)return reply({error:'Resolve coverage gaps before publishing',conflicts:preview.gaps},409)
-      const people=rosterTeamPeople(ctx,teamId)
+      const people=editablePeople(ctx,teamId)
       const publication=await result(admin.rpc('worklog_roster_publish_team',{
         p_team:teamId,p_week:week,p_actor:id,
         p_expected_version:Number(args.expectedVersion||0),
         p_expected_revision:Number(args.expectedRevision||0),
         p_user_ids:people.map(p=>p.id),
       }))
+      // The published version is already active. A retry on the scheduler also reconciles any interrupted refresh.
+      try{await refreshRosterAssignments(addDays(week,-1),addDays(week,7))}
+      catch(error){console.error('Roster assignment refresh will retry',error)}
       return reply({...publication,early:preview.early})
     }
     if(action==='roster_history'){

@@ -31,7 +31,7 @@ export function buildCheckRows(series:any[],checks:any[],changes:any[],from:stri
   const rows=[]
   for(const s of series)for(let date=from;date<=to;date=addDays(date,1))if(matches(s,date))for(const check of bySeries.get(s.id)||[]){
     const owner=ownerFor(check,date,changes),window=startEnd(date,check.window_start,check.window_end)
-    rows.push({kind:'check',series_id:s.id,check_id:check.id,scheduled_date:date,customer_id:s.customer_id,title:s.title+' · '+check.label,instructions:s.instructions,steps:s.steps,evidence_required:s.evidence_required,creator_id:s.created_by,owner_id:owner.primary_owner_id,backup_owner_id:owner.backup_owner_id,window_start_at:window.first,window_end_at:window.last,due_at:window.last,original_due_at:window.last})
+    rows.push({kind:'check',roster_team_id:s.roster_team_id||null,roster_assignment:null as Record<string,unknown>|null,coverage_gap:null as boolean|null,series_id:s.id,check_id:check.id,scheduled_date:date,customer_id:s.customer_id,title:s.title+' · '+check.label,instructions:s.instructions,steps:s.steps,evidence_required:s.evidence_required,creator_id:s.created_by,owner_id:owner.primary_owner_id,backup_owner_id:owner.backup_owner_id,window_start_at:window.first,window_end_at:window.last,due_at:window.last,original_due_at:window.last})
   }
   return rows
 }

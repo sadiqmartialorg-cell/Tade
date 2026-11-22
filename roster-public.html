@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Published roster · WorkLog</title>
+  <link rel="stylesheet" href="/roster-public.css">
+</head>
+<body>
+  <header class="brand"><a href="/">WorkLog</a><span>Published roster</span></header>
+  <main>
+    <div class="toolbar">
+      <div class="view-switch" role="group" aria-label="Roster view">
+        <button id="weeklyView" type="button" aria-pressed="true">Weekly roster</button>
+        <button id="liveView" type="button" aria-pressed="false">On shift now</button>
+      </div>
+      <label>Team <select id="teamFilter"><option value="">All teams</option></select></label>
+    </div>
+    <section class="sheet" aria-labelledby="viewTitle">
+      <div class="sheet-head">
+        <div><h1 id="viewTitle">Weekly roster</h1><p id="rosterStamp">Loading published shifts…</p></div>
+        <div id="weekControls" class="week-controls" aria-label="Roster week">
+          <button type="button" id="previousWeek" aria-label="Previous week">‹</button>
+          <button type="button" id="thisWeek">This week</button>
+          <button type="button" id="nextWeek" aria-label="Next week">›</button>
+        </div>
+      </div>
+      <p id="rosterProblem" class="error" role="status" hidden></p>
+      <div id="publicRosterGrid" class="data" role="region" aria-label="Published shifts" tabindex="0"></div>
+    </section>
+    <p class="note">All times are in IST. On shift now reflects the published schedule.</p>
+  </main>
+  <script type="module" src="/roster-public.js"></script>
+</body>
+</html>
