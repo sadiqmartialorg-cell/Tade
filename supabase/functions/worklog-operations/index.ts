@@ -271,7 +271,7 @@ async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffi
   const editableIds=editablePeople(ctx,teamId).map(person=>person.id)
   const teamIds=new Set(rosterTeamPeople(ctx,teamId).map(person=>person.id))
   const [items,published,effective,customers]=await Promise.all([
-    result(admin.from('worklog_activity_items').select('id,title,customer_id,scheduled_date,owner_id,backup_owner_id,window_start_at,window_end_at,status,roster_team_id').eq('kind','check').gte('scheduled_date',week).lte('scheduled_date',until)),
+    result(admin.from('worklog_activity_items').select('id,title,customer_id,scheduled_date,owner_id,backup_owner_id,window_start_at,window_end_at,status,roster_team_id,coverage_gap').eq('kind','check').gte('scheduled_date',week).lte('scheduled_date',until)),
     rosterRows(week,until),
     editableIds.length?result(admin.rpc('worklog_roster_effective_shifts',{p_team:teamId,p_week:week,p_user_ids:editableIds})):[],
     result(admin.from('adhoc_customers').select('id,name')),
@@ -285,7 +285,7 @@ async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffi
   const eligibleSpans=routing.teams.get(teamId)||[]
   const shiftNames=(ids:string[])=>[...new Set(ids)].map(id=>ctx.byId.get(id)?.display_name).filter(Boolean)
   const names=new Map(customers.map((x:any)=>[x.id,x.name]))
-  const gaps=[] as any[], early=[] as any[], markers=[] as any[]
+  const gaps=[] as any[], early=[] as any[], markers=[] as any[], recordedGaps=[] as any[]
   const scoped=items.filter((item:any)=>item.status!=='cancelled' &&
     (item.roster_team_id===teamId || !item.roster_team_id&&(teamIds.has(item.owner_id)||teamIds.has(item.backup_owner_id))))
   for(const item of scoped){
@@ -304,6 +304,7 @@ async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffi
       reason:eligible?null:noActivityAccess?'Scheduled staff lack Daily Activity access':'No eligible shift at the scheduled time',
       suggestion:noActivityAccess?'Ask a User Admin to enable Daily Activity for the staff who should take this check.':'Add or extend a shift for a team member with Daily Activity access.'}
     markers.push(entry)
+    if(item.coverage_gap && Date.parse(item.window_end_at)<=Date.now())recordedGaps.push({id:item.id,date:entry.date,time:entry.time})
     if(item.status!=='open'||Date.parse(item.window_end_at)<=Date.now())continue
     if(!eligible&&(item.roster_team_id||!legacy?.covered))gaps.push(entry)
     else if(match&&match.end<Date.parse(item.window_end_at)&&!shiftAt(eligibleSpans,match.end)){
@@ -311,7 +312,7 @@ async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffi
     }
   }
   const staffing=includeStaffing?staffingWeek(week,draftCoverage.filter(shift=>teamIds.has(shift.user_id))):undefined
-  return {gaps,early,checks:scoped.length,staffing,markers:includeStaffing?markers:undefined}
+  return {gaps,early,checks:scoped.length,staffing,markers:includeStaffing?markers:undefined,recordedGaps:includeStaffing?recordedGaps:undefined}
 }
 async function publicRoster(week:string) {
   const current=monday(istDate())
@@ -442,20 +443,23 @@ Deno.serve(async request=>{
       const membership=[`owner_id.in.(${owners})`,`backup_owner_id.eq.${id}`,`creator_id.eq.${id}`,`approver_id.eq.${id}`]
       if(teamScope.length)membership.push(`roster_team_id.in.(${teamScope.join(',')})`)
       const scoped=()=>admin.from('worklog_activity_items').select('*').or(membership.join(','))
-      const [checks,oneTime,customers,shifts,carryover,prerequisites]=await Promise.all([
+      const [checks,oneTime,customers,shifts,carryover,earlierTasks,prerequisites]=await Promise.all([
         collectRows(()=>scoped().eq('kind','check').eq('scheduled_date',date).order('id')),
         collectRows(()=>scoped().neq('kind','check').gte('due_at',istStamp(date,'00:00')).lt('due_at',istStamp(next,'00:00')).order('id')),
         result(admin.from('adhoc_customers').select('id,name')),
         rosterRows(date,date),
         date===today?collectRows(()=>admin.from('worklog_activity_items').select('*').eq('kind','check').eq('owner_id',id)
           .lt('scheduled_date',date).not('handover_history','is',null).is('completed_at',null).in('status',['open','missed']).order('id')):[],
+        date===today&&args.includeEarlier===true?collectRows(()=>admin.from('worklog_activity_items').select('*').neq('kind','check')
+          .eq('owner_id',id).eq('status','open').is('completed_at',null).lt('due_at',istStamp(date,'00:00')).order('id')):[],
         result(admin.from('worklog_activity_items').select('id,title,owner_id').neq('kind','check').neq('status','cancelled')
           .in('owner_id',[...ctx.scope]).gte('due_at',istStamp(today,'00:00')).lt('due_at',istStamp(addDays(today,14),'00:00'))
           .order('due_at').limit(200)),
       ])
       const items=[...checks,...oneTime].filter(item=>[item.owner_id,item.backup_owner_id,item.creator_id,item.approver_id].includes(id)||
         ctx.scope.has(item.owner_id)||teamScope.includes(item.roster_team_id))
-      const visible=[...items,...carryover]
+      const earlier=[...carryover,...earlierTasks]
+      const visible=[...items,...earlier]
       for(const item of checks)if(item.kind==='check'&&!item.roster_team_id&&item.status==='open'){
         const c=coverage(item,shifts),start=Date.parse(item.window_start_at)
         item.coverage_gap=!c.primary.some(span=>span.start<=start&&start<span.end)&&!c.backup.some(span=>span.start<=start&&start<span.end)
@@ -466,7 +470,7 @@ Deno.serve(async request=>{
         ids.length?result(admin.from('worklog_activity_extensions').select('*').in('item_id',ids).eq('status','pending')):[],
         dependencyIds.length?result(admin.from('worklog_activity_items').select('id,status').in('id',dependencyIds)):[],
       ])
-      return reply({items,carryover,extensions,customers,prerequisites,dependencies})
+      return reply({items,carryover:earlier,extensions,customers,prerequisites,dependencies})
     }
     if(action==='series_list'){
       requireManager(ctx,'daily_activity')
@@ -527,6 +531,7 @@ Deno.serve(async request=>{
       const time=/^([01]\d|2[0-3]):[0-5]\d$/
       for(const check of checks)if(!time.test(check.start)||!time.test(check.end)||check.start===check.end)
         throw Error('Choose a valid time and completion window for each check')
+      if(new Set(checks.map((check:any)=>check.start)).size!==checks.length)throw Error('Use a different time for each check')
       const series=await result(admin.from('worklog_activity_series').insert({customer_id:customer.id,roster_team_id:team.id,title,instructions,steps,
         evidence_required:!!args.evidenceRequired,schedule_kind:kind,weekdays:days,monthly_day:kind==='monthly'?Number(args.monthlyDay||start.slice(8)):null,
         starts_on:start,ends_on:end,created_by:id,reminder_minutes:Number(args.reminderMinutes||15)}).select('*').single())

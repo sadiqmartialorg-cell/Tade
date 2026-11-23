@@ -36,3 +36,13 @@ tbody th[scope="row"]{min-width:136px}
 .live-list li{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line)}
 .live-list small{display:block;color:var(--muted)}
 .note{margin-top:12px}
+.brand a:first-child { display:inline-flex; align-items:center; gap:7px; }
+.brand .public-mark { display:grid; place-items:center; width:29px; height:29px; padding:0; border:0; border-radius:7px; background:#3a6ce0; font-size:14px; }
+.brand .workspace-link { margin-left:auto; font-size:13px; }
+.view-switch button { border:0; border-bottom:3px solid transparent; border-radius:0; background:transparent; }
+.view-switch button[aria-pressed="true"] { background:transparent; color:#2253bb; border-color:#2253bb; }
+#publicWeekDate { font:inherit; color:#172338; background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px; }
+#publicShiftLegend { border-bottom:1px solid var(--line); }
+.data .shift-tone { font-size:12px; }
+.shift-today { background:#edf3ff; }
+.on-shift-table { min-width:490px; }

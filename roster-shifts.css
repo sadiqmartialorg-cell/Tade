@@ -1,0 +1,19 @@
+.shift-tone {
+  --fill:#f5f7fb; --edge:#d8e0eb; --tone:#37465e;
+  display:inline-block; border:1px solid var(--edge); border-radius:7px;
+  background:var(--fill); color:var(--tone); font-weight:650; padding:4px 8px;
+}
+.shift-morning { --fill:#a9e6d6; --edge:#60ad9b; --tone:#123f37; }
+.shift-afternoon { --fill:#f9d8a7; --edge:#d8a756; --tone:#4d3515; }
+.shift-night { --fill:#4f367f; --edge:#38245e; --tone:#fff; }
+.shift-custom-morning { --fill:#e4f7f0; --edge:#8ecabb; --tone:#123f37; }
+.shift-custom-afternoon { --fill:#fff4e3; --edge:#e1bd7e; --tone:#573b16; }
+.shift-custom-night { --fill:#ece3fa; --edge:#aa90d1; --tone:#3e2a65; }
+.shift-morning-afternoon { --fill:linear-gradient(105deg,#d9f3e9,#ffebca); --edge:#a7b89b; --tone:#283c33; }
+.shift-afternoon-night { --fill:linear-gradient(105deg,#ffebca,#ede2ff); --edge:#c7aec1; --tone:#40334c; }
+.shift-night-morning { --fill:linear-gradient(105deg,#ede2ff,#d9f3e9); --edge:#b5b4df; --tone:#34354c; }
+.shift-off { --fill:repeating-linear-gradient(135deg,#f7f8fa 0 5px,#e7eaf0 5px 7px); --edge:#aab5c7; border-style:dashed; }
+.shift-leave { --fill:#faedf0; --edge:#e6bfcb; --tone:#80384e; }
+.shift-legend { display:flex; flex-wrap:wrap; gap:7px 9px; padding:10px 14px; font-size:12px; }
+.shift-legend .shift-tone { padding:3px 8px; }
+.shift-tone small { color:inherit; }

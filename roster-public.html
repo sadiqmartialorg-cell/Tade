@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Published roster · WorkLog</title>
-  <link rel="stylesheet" href="/roster-public.css">
+  <link rel="stylesheet" href="/roster-public.css?v=activity-roster-ui">
+  <link rel="stylesheet" href="/roster-shifts.css">
 </head>
 <body>
-  <header class="brand"><a href="/">WorkLog</a><span>Published roster</span></header>
+  <header class="brand"><a href="/"><span class="public-mark" aria-hidden="true">W</span> WorkLog</a><span>Published roster</span><a class="workspace-link" href="/">Back to workspace</a></header>
   <main>
     <div class="toolbar">
       <div class="view-switch" role="group" aria-label="Roster view">
@@ -22,15 +23,17 @@
         <div><h1 id="viewTitle">Weekly roster</h1><p id="rosterStamp">Loading published shifts…</p></div>
         <div id="weekControls" class="week-controls" aria-label="Roster week">
           <button type="button" id="previousWeek" aria-label="Previous week">‹</button>
+          <input id="publicWeekDate" type="date" aria-label="Jump to roster week">
           <button type="button" id="thisWeek">This week</button>
           <button type="button" id="nextWeek" aria-label="Next week">›</button>
         </div>
       </div>
       <p id="rosterProblem" class="error" role="status" hidden></p>
+      <div id="publicShiftLegend"></div>
       <div id="publicRosterGrid" class="data" role="region" aria-label="Published shifts" tabindex="0"></div>
     </section>
     <p class="note">All times are in IST. On shift now reflects the published schedule.</p>
   </main>
-  <script type="module" src="/roster-public.js"></script>
+  <script type="module" src="/roster-public.js?v=activity-roster-ui"></script>
 </body>
 </html>
