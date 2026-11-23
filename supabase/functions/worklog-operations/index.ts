@@ -367,13 +367,21 @@ async function tick() {
   if(pub&&priv){webPush.setVapidDetails('mailto:sadiq.a@talview.com',pub,priv)
     const pending=await result(admin.from('worklog_inbox').select('*').is('push_sent_at',null).lt('push_attempts',3).order('created_at').limit(80))
     for(const message of pending){
+      let deadline:string|null=null
+      let urgent=message.kind==='backup'
+      let title=message.title
       if(message.item_id&&['assignment','reassignment','check_open','reminder','backup','due'].includes(message.kind)){
         const current=await result(admin.from('worklog_activity_items').select('status,owner_id,backup_owner_id,due_at').eq('id',message.item_id).maybeSingle())
         const intended=message.kind==='backup'?current?.backup_owner_id:current?.owner_id
         if(!current||current.status!=='open'||intended!==message.recipient_id||message.kind==='due'&&Date.parse(current.due_at)>Date.now()+15*60000){await admin.from('worklog_inbox').update({push_sent_at:new Date().toISOString()}).eq('id',message.id);continue}
+        deadline=current.due_at
+        if(message.kind==='due'){
+          urgent=Date.parse(deadline??'')<=Date.now()
+          title=urgent?'Task overdue':'Task due soon'
+        }
       }
       const subs=await result(admin.from('worklog_push_subscriptions').select('*').eq('user_id',message.recipient_id));let failed=false
-      for(const sub of subs)try{await webPush.sendNotification({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}},JSON.stringify({id:message.delivery_key,title:message.title,body:message.body,target:message.target}),{TTL:3600})}
+      for(const sub of subs)try{await webPush.sendNotification({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}},JSON.stringify({id:message.delivery_key,title,body:message.body,target:message.target,deadline,urgent}),{TTL:3600})}
       catch(e){if((e as any).statusCode===404||(e as any).statusCode===410)await admin.from('worklog_push_subscriptions').delete().eq('id',sub.id);else failed=true}
       await admin.from('worklog_inbox').update(failed?{push_attempts:message.push_attempts+1}:{push_sent_at:new Date().toISOString(),push_attempts:message.push_attempts+1}).eq('id',message.id)
     }
@@ -439,7 +447,7 @@ Deno.serve(async request=>{
       if(action==='push_status')return reply({enabled:Boolean(sub)})
       if(!sub)throw Error('Enable reminders in this browser before sending a test')
       if(!uuid(args.testId))throw Error('Invalid test notification')
-      const title='WorkLog test notification',body='Browser reminders are reaching this device.'
+      const title='Test reminder',body='Sample task · Due in 15 minutes'
       const {data:test,error:reserveError}=await admin.from('worklog_inbox').insert({recipient_id:id,
         delivery_key:`push-test:${id}:${Math.floor(Date.now()/60000)}`,kind:'push_test',title,body,
         read_at:new Date().toISOString(),push_attempts:3}).select('id').single()
@@ -447,7 +455,7 @@ Deno.serve(async request=>{
       if(reserveError)throw reserveError
       try{
         await webPush.sendNotification({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}},
-          JSON.stringify({id:args.testId,title,body,target:'daily_activity',test:true}),{
+          JSON.stringify({id:args.testId,title,body,target:'daily_activity',test:true,urgent:true}),{
             TTL:60,timeout:10000,vapidDetails:{subject:'mailto:sadiq.a@talview.com',...vapidKeys(secret)},
           })
       }catch(error){

@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "mkdir -p dist && cp index.html roster-public.html *.css *.js dist/",
+  "buildCommand": "mkdir -p dist && cp index.html roster-public.html *.css *.js worklog-notification.png dist/",
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/roster/public", "destination": "/roster-public.html" }]
 }

@@ -803,9 +803,14 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     }
   }
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&getUser()&&Date.now()-lastInboxCheck>5*60000)refreshInbox()});
+  let inboxPushTimer;
   navigator.serviceWorker?.addEventListener('message',event=>{
     if(event.data?.type==='worklog-push-received'&&pendingPushTest?.id===event.data.id){
       completePushTest('This browser received the test notification.');
+    }
+    if(event.data?.type==='worklog-inbox-changed'){
+      clearTimeout(inboxPushTimer);
+      inboxPushTimer=setTimeout(refreshInbox,400);
     }
     if(event.data?.type==='worklog-notification'){if(event.data.target==='roster')openRoster();else openDaily('mine')}
   });
