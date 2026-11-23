@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0'
 import webPush from 'npm:web-push@3.6.7'
-import {scheduledIdentity,vapidKeys} from './security.ts'
+import {isBrowserPushEndpoint,scheduledIdentity,vapidKeys} from './security.ts'
 import {addDays,istDate,istStamp,monday,startEnd,nextPublishedShiftEnd,ownerFor,buildCheckRows,coverage,staffingWeek} from './schedule.ts'
 import {eligibleTaskOwners,type OneTimeKind} from './task-routing.ts'
 import {canCarryCheck,handoverShifts,type Transfer} from './handover.ts'
@@ -426,11 +426,41 @@ Deno.serve(async request=>{
       const shifts=await rosterRows(istDate(),addDays(istDate(),14))
       return reply(ids.map(ownerId=>({ownerId,dueAt:nextPublishedShiftEnd(shifts,ownerId)})))
     }
-    if(action==='inbox'){const rows=await result(admin.from('worklog_inbox').select('id,kind,title,body,target,created_at,read_at,item_id').eq('recipient_id',id).order('created_at',{ascending:false}).limit(100));return reply(rows)}
+    if(action==='inbox'){const rows=await result(admin.from('worklog_inbox').select('id,kind,title,body,target,created_at,read_at,item_id').eq('recipient_id',id).neq('kind','push_test').order('created_at',{ascending:false}).limit(100));return reply(rows)}
     if(action==='inbox_read'){await result(admin.from('worklog_inbox').update({read_at:new Date().toISOString()}).eq('id',args.id).eq('recipient_id',id));return reply({ok:true})}
     if(action==='push_key')return reply({publicKey:vapidKeys(secret).publicKey})
     if(action==='push_subscribe'){const s=args.subscription;if(!s?.endpoint||!s.keys?.p256dh||!s.keys?.auth)throw Error('Invalid push subscription');await result(admin.from('worklog_push_subscriptions').upsert({user_id:id,endpoint:s.endpoint,p256dh:s.keys.p256dh,auth:s.keys.auth,updated_at:new Date().toISOString()},{onConflict:'endpoint'}));return reply({ok:true})}
     if(action==='push_unsubscribe'){await result(admin.from('worklog_push_subscriptions').delete().eq('user_id',id).eq('endpoint',args.endpoint));return reply({ok:true})}
+    if(action==='push_status'||action==='push_test'){
+      requireModule(ctx,'daily_activity')
+      if(!isBrowserPushEndpoint(args.endpoint))throw Error('This browser push provider is not supported')
+      const sub=await result(admin.from('worklog_push_subscriptions').select('id,endpoint,p256dh,auth')
+        .eq('user_id',id).eq('endpoint',args.endpoint).maybeSingle())
+      if(action==='push_status')return reply({enabled:Boolean(sub)})
+      if(!sub)throw Error('Enable reminders in this browser before sending a test')
+      if(!uuid(args.testId))throw Error('Invalid test notification')
+      const title='WorkLog test notification',body='Browser reminders are reaching this device.'
+      const {data:test,error:reserveError}=await admin.from('worklog_inbox').insert({recipient_id:id,
+        delivery_key:`push-test:${id}:${Math.floor(Date.now()/60000)}`,kind:'push_test',title,body,
+        read_at:new Date().toISOString(),push_attempts:3}).select('id').single()
+      if(reserveError?.code==='23505')return reply({error:'Wait until the next minute before sending another test'},429)
+      if(reserveError)throw reserveError
+      try{
+        await webPush.sendNotification({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}},
+          JSON.stringify({id:args.testId,title,body,target:'daily_activity',test:true}),{
+            TTL:60,timeout:10000,vapidDetails:{subject:'mailto:sadiq.a@talview.com',...vapidKeys(secret)},
+          })
+      }catch(error){
+        const status=(error as {statusCode?:number}).statusCode
+        if(status===404||status===410){
+          await result(admin.from('worklog_push_subscriptions').delete().eq('id',sub.id).eq('user_id',id))
+          throw Error('This browser subscription expired. Enable reminders again before retrying.')
+        }
+        throw Error(status?`The push service rejected the test (HTTP ${status}).`:'Could not reach the browser push service.')
+      }
+      await admin.from('worklog_inbox').update({push_sent_at:new Date().toISOString(),push_attempts:1}).eq('id',test.id)
+      return reply({accepted:true})
+    }
     if(action==='activity_list'){
       requireModule(ctx,'daily_activity')
       const date=String(args.date||args.from||istDate())

@@ -106,7 +106,7 @@
 <dialog id="notificationDialog" class="ops-dialog" aria-labelledby="notificationTitle">
   <div class="ops-quick-head"><h2 id="notificationTitle">Notification settings</h2><button type="button" class="secondary" onclick="this.closest('dialog').close()" aria-label="Close notification settings">×</button></div>
   <p id="notificationStatus" aria-live="polite"></p>
-  <div class="form-actions"><button id="notificationToggle" type="button" onclick="toggleWorklogPush()">Enable reminders</button><button type="button" class="secondary" onclick="this.closest('dialog').close()">Close</button></div>
+  <div class="form-actions"><button id="notificationToggle" type="button" onclick="toggleWorklogPush()">Enable reminders</button><button id="notificationTest" type="button" class="secondary" onclick="sendWorklogPushTest()" hidden>Send test notification</button></div>
 </dialog>
 <dialog id="activityDetailsDialog" class="ops-dialog" aria-labelledby="activityDetailsTitle">
   <div class="ops-quick-head"><h2 id="activityDetailsTitle">Activity details</h2><button type="button" class="secondary" onclick="this.closest('dialog').close()" aria-label="Close activity details">×</button></div>
@@ -210,7 +210,7 @@
 </div></main><div id="toast" class="toast"></div>
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
-import { setupOperations } from './operations.js?v=activity-roster-ui';
+import { setupOperations } from './operations.js?v=push-test';
 // Set these to the project URL and publishable key from Supabase project settings.
 const SUPABASE_URL = 'https://edlpujkyxjcubvjdcmle.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_pUmRfJJ4gkyL7XA6pXsS1A_N-h5Udu8';

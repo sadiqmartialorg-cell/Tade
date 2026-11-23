@@ -1,5 +1,12 @@
 import webPush from 'npm:web-push@3.6.7'
-import {scheduledIdentity,vapidKeys} from './security.ts'
+import {isBrowserPushEndpoint,scheduledIdentity,vapidKeys} from './security.ts'
+
+Deno.test('browser push tests only send to known HTTPS push services',()=>{
+  const accepted=['https://fcm.googleapis.com/fcm/send/test','https://example.notify.windows.com/w/test']
+  const rejected=['http://fcm.googleapis.com/test','https://fcm.googleapis.com.example.test/test',
+    'https://fcm.googleapis.com:9000/test','https://user@fcm.googleapis.com/test','https://127.0.0.1/test']
+  if(!accepted.every(isBrowserPushEndpoint)||rejected.some(isBrowserPushEndpoint))throw Error('Unexpected push endpoint validation')
+})
 
 Deno.test('derived VAPID keys are stable, correctly sized, and accepted by web-push',()=>{
   const first=vapidKeys('service-role-secret-for-test')

@@ -1,7 +1,14 @@
+self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
 self.addEventListener('push',event=>{
   let data={};try{data=event.data?.json()||{}}catch(_){data={title:'WorkLog update',body:event.data?.text()||''}}
   const title=data.title||'WorkLog update';
-  event.waitUntil(self.registration.showNotification(title,{body:data.body||'',tag:data.id||undefined,renotify:false,data:{target:data.target||'daily_activity'}}));
+  event.waitUntil((async()=>{
+    await self.registration.showNotification(title,{body:data.body||'',tag:data.id||undefined,renotify:false,data:{target:data.target||'daily_activity'}});
+    if(data.test===true&&data.id){
+      const clients=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+      for(const client of clients)client.postMessage({type:'worklog-push-received',id:data.id});
+    }
+  })());
 });
 self.addEventListener('notificationclick',event=>{
   event.notification.close();

@@ -23,3 +23,13 @@ export function vapidKeys(secret:string){
   const curve=createECDH('prime256v1');curve.setPrivateKey(privateKey)
   return {publicKey:curve.getPublicKey().toString('base64url'),privateKey:privateKey.toString('base64url')}
 }
+
+export function isBrowserPushEndpoint(endpoint:unknown):endpoint is string {
+  if(typeof endpoint!=='string'||endpoint.length>2048)return false
+  try{
+    const url=new URL(endpoint)
+    if(url.protocol!=='https:'||url.port||url.username||url.password||url.hash)return false
+    return ['fcm.googleapis.com','updates.push.services.mozilla.com','web.push.apple.com'].includes(url.hostname)||
+      url.hostname.endsWith('.notify.windows.com')
+  }catch{return false}
+}

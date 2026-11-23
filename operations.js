@@ -717,9 +717,12 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     const registration=await navigator.serviceWorker.getRegistration();
     return registration?.pushManager.getSubscription()||null;
   }
+  let remindersEnabled=false,pendingPushTest=null;
   async function refreshNotificationSettings(){
     const button=$('notificationToggle');
     button.disabled=true;
+    $('notificationTest').hidden=true;
+    $('notificationStatus').textContent='Checking browser reminders…';
     if(!supportsNotifications()){
       $('notificationStatus').textContent='Desktop reminders are unavailable in this browser.';
       return;
@@ -727,10 +730,12 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     try{
       const subscription=await getWorklogSubscription();
       const blocked=Notification.permission==='denied';
-      button.textContent=subscription?'Disable reminders':'Enable reminders';
-      button.disabled=blocked&&!subscription;
+      remindersEnabled=Boolean(subscription&&(await call('push_status',{endpoint:subscription.endpoint})).enabled);
+      button.textContent=remindersEnabled?'Disable reminders':'Enable reminders';
+      button.disabled=(blocked&&!remindersEnabled)||Boolean(pendingPushTest);
+      $('notificationTest').hidden=blocked||!remindersEnabled;
       $('notificationStatus').textContent=blocked?'Desktop notifications are blocked in your browser settings.':
-        subscription?'Desktop reminders are enabled in this browser.':'Receive desktop reminders for WorkLog in this browser.';
+        remindersEnabled?'Desktop reminders are enabled for your account in this browser.':'Enable desktop reminders for your account in this browser.';
     }catch(error){$('notificationStatus').textContent=error.message}
   }
   function openNotificationSettings(){
@@ -739,17 +744,22 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
   }
   async function toggleWorklogPush(){
     $('notificationToggle').disabled=true;
+    $('notificationTest').disabled=true;
     try{
       if(!supportsNotifications())throw Error('Desktop reminders are unavailable in this browser.');
+      if(!remindersEnabled&&await Notification.requestPermission()!=='granted')throw Error('Notification permission was not granted.');
       const current=await getWorklogSubscription();
-      if(current){
-        await call('push_unsubscribe',{endpoint:current.endpoint});
-        await current.unsubscribe();
+      if(remindersEnabled){
+        if(current){
+          await call('push_unsubscribe',{endpoint:current.endpoint});
+          await current.unsubscribe();
+        }
       }else{
-        if(await Notification.requestPermission()!=='granted')throw Error('Notification permission was not granted.');
         const {publicKey}=await call('push_key');
         if(!publicKey)throw Error('Push notifications are not configured.');
-        const registration=await navigator.serviceWorker.register('./worklog-sw.js');
+        await navigator.serviceWorker.register('./worklog-sw.js');
+        const registration=await navigator.serviceWorker.ready;
+        if(current)await current.unsubscribe();
         const raw=atob(publicKey.replace(/-/g,'+').replace(/_/g,'/'));
         const key=Uint8Array.from(raw,character=>character.charCodeAt(0));
         const subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
@@ -760,10 +770,45 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     }catch(error){
       $('notificationStatus').textContent=error.message;
       $('notificationToggle').disabled=false;
+    }finally{$('notificationTest').disabled=false}
+  }
+  function completePushTest(message){
+    clearTimeout(pendingPushTest?.timeout);
+    pendingPushTest=null;
+    $('notificationStatus').textContent=message;
+    $('notificationTest').disabled=false;
+    $('notificationToggle').disabled=false;
+  }
+  async function sendWorklogPushTest(){
+    if(!remindersEnabled||pendingPushTest)return;
+    const id=crypto.randomUUID();
+    pendingPushTest={id};
+    $('notificationToggle').disabled=true;
+    $('notificationTest').disabled=true;
+    $('notificationStatus').textContent='Sending a test to this browser…';
+    try{
+      const registration=await navigator.serviceWorker.getRegistration();
+      if(!registration)throw Error('Enable reminders in this browser first.');
+      await registration.update().catch(()=>{});
+      const subscription=await registration.pushManager.getSubscription();
+      if(!subscription)throw Error('Enable reminders in this browser first.');
+      await call('push_test',{endpoint:subscription.endpoint,testId:id});
+      if(pendingPushTest?.id!==id)return;
+      $('notificationStatus').textContent='The push service accepted the test. Waiting for this browser…';
+      pendingPushTest.timeout=setTimeout(()=>completePushTest('The push service accepted the test, but this browser hasn’t confirmed receipt.'),20000);
+    }catch(error){
+      if(pendingPushTest?.id!==id)return;
+      await refreshNotificationSettings();
+      if(pendingPushTest?.id===id)completePushTest(error.message);
     }
   }
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&getUser()&&Date.now()-lastInboxCheck>5*60000)refreshInbox()});
-  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='worklog-notification'){if(event.data.target==='roster')openRoster();else openDaily('mine')}});
-  const api={onBootstrap(fromSignIn=false){if(getUser()){if(!$('opsDate').value)$('opsDate').value=today();if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());refreshInbox();if(allowed('daily_activity'))loadShiftHandover().then(report=>{if(report.shift&&(fromSignIn||report.incoming.length||report.completed.length))showShiftHandover(report)}).catch(error=>toast('Unable to load shift handover: '+error.message));if(location.hash==='#roster'&&allowed('roster'))queueMicrotask(openRoster);else if(location.hash==='#daily_activity'&&allowed('daily_activity'))queueMicrotask(()=>openDaily('mine'))}},openDaily,openRoster,openInbox,openShiftHandover,viewHandoverActivity,refreshDaily,renderDaily,filterDaily,activityDateChanged,setActivityToday,openActivityFilters,applyActivityFilters,clearActivityFilters,filterActivityStatus,sortActivities,setActivityKind,stepActivityPage,openActivityDetails,openQuickAdd,closeQuickAdd,toggleQuickMode,toggleQuickType,renderQuickOwners,updateQuickDue,toggleQuickFrequency,updateQuickRepeatSummary,addQuickCheck,submitQuickAdd,completeActivity,requestActivityExtension,decideActivityExtension,adoptSeries,endActivitySeries,previewSeries,loadRoster,renderRoster,rosterThisWeek,rosterStepWeek,openRosterEditor,toggleRosterPreset,updateRosterEndDay,saveRosterEditor,copyRoster,reviewRosterGap,previewRoster,publishRoster,beginRosterEdit,showPersonalRoster,showRosterPlanner,showStaffingHour,selectCoverageDay,openDailyCoverage,inspectRosterCheck,openRecordedGap,showCoverageCheck,loadRosterHistory,refreshInbox,openInboxMessage,openNotificationSettings,toggleWorklogPush};
+  navigator.serviceWorker?.addEventListener('message',event=>{
+    if(event.data?.type==='worklog-push-received'&&pendingPushTest?.id===event.data.id){
+      completePushTest('This browser received the test notification.');
+    }
+    if(event.data?.type==='worklog-notification'){if(event.data.target==='roster')openRoster();else openDaily('mine')}
+  });
+  const api={onBootstrap(fromSignIn=false){if(getUser()){if(!$('opsDate').value)$('opsDate').value=today();if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());refreshInbox();if(allowed('daily_activity'))loadShiftHandover().then(report=>{if(report.shift&&(fromSignIn||report.incoming.length||report.completed.length))showShiftHandover(report)}).catch(error=>toast('Unable to load shift handover: '+error.message));if(location.hash==='#roster'&&allowed('roster'))queueMicrotask(openRoster);else if(location.hash==='#daily_activity'&&allowed('daily_activity'))queueMicrotask(()=>openDaily('mine'))}},openDaily,openRoster,openInbox,openShiftHandover,viewHandoverActivity,refreshDaily,renderDaily,filterDaily,activityDateChanged,setActivityToday,openActivityFilters,applyActivityFilters,clearActivityFilters,filterActivityStatus,sortActivities,setActivityKind,stepActivityPage,openActivityDetails,openQuickAdd,closeQuickAdd,toggleQuickMode,toggleQuickType,renderQuickOwners,updateQuickDue,toggleQuickFrequency,updateQuickRepeatSummary,addQuickCheck,submitQuickAdd,completeActivity,requestActivityExtension,decideActivityExtension,adoptSeries,endActivitySeries,previewSeries,loadRoster,renderRoster,rosterThisWeek,rosterStepWeek,openRosterEditor,toggleRosterPreset,updateRosterEndDay,saveRosterEditor,copyRoster,reviewRosterGap,previewRoster,publishRoster,beginRosterEdit,showPersonalRoster,showRosterPlanner,showStaffingHour,selectCoverageDay,openDailyCoverage,inspectRosterCheck,openRecordedGap,showCoverageCheck,loadRosterHistory,refreshInbox,openInboxMessage,openNotificationSettings,toggleWorklogPush,sendWorklogPushTest};
   Object.assign(window,api);window.WorkLogOps=api;return api;
 }
