@@ -20,8 +20,10 @@ export function rosterTeam(people: Map<string,RosterPerson>, personId:string) {
 }
 
 export function editableRosterMembers<T extends RosterPerson>(people:T[], actorId:string, actorTier:number, teamId:string) {
-  if (actorTier > 2 || actorId !== teamId) return []
-  return people.filter(person => person.active && person.manager_id === actorId)
+  if ((actorTier !== 1 && actorTier !== 2) || actorId !== teamId) return []
+  const byId = new Map(people.map(person => [person.id,person]))
+  return people.filter(person => person.active && person.id !== actorId &&
+    (actorTier === 1 ? person.manager_id === actorId : rosterTeam(byId,person.id) === actorId))
 }
 
 export type WorkingShift = {

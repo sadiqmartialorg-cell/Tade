@@ -143,7 +143,7 @@
     <nav id="rosterPlannerTabs" class="tabs" aria-label="Roster views" hidden><button id="rosterShiftsTab" type="button" class="active" aria-current="page" onclick="showRosterPlanner(false)">Shifts</button><button id="rosterCoverageTab" type="button" onclick="showRosterPlanner(true)">Coverage</button></nav>
     <a class="ops-public-link" href="/roster/public" target="_blank" rel="noopener" aria-label="Public roster (opens in a new tab)">Public roster <span aria-hidden="true">↗</span></a>
   </div>
-  <section id="rosterSheet" class="ops-roster-sheet"><div class="ops-roster-sheet-head"><div><h3>Team shifts</h3><p class="sub" id="rosterSheetHelp">Select a shift to edit the draft.</p></div><label id="rosterShowAllWrap"><input id="rosterShowAll" type="checkbox" onchange="renderRoster()"> Show all team members</label></div><div id="rosterGrid" class="ops-roster-scroll" role="region" aria-label="Weekly shift grid" tabindex="0"></div><div id="rosterFooter" class="ops-roster-footer"></div></section>
+  <section id="rosterSheet" class="ops-roster-sheet"><div class="ops-roster-sheet-head"><div><h3>Team shifts</h3><p class="sub" id="rosterSheetHelp">Select a shift to edit the draft.</p></div></div><div id="rosterGrid" class="ops-roster-scroll" role="region" aria-label="Weekly shift grid" tabindex="0"></div><div id="rosterFooter" class="ops-roster-footer"></div></section>
   <div id="rosterCoverage" class="ops-coverage" hidden></div>
   <details id="rosterHistoryWrap" class="ops-roster-history panel"><summary onclick="loadRosterHistory()">Published history</summary><div id="rosterHistory"></div></details>
   <p id="rosterError" class="error" role="alert"></p>
@@ -185,7 +185,7 @@
 </div></main><div id="toast" class="toast"></div>
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
-import { setupOperations } from './operations.js';
+import { setupOperations } from './operations.js?v=roster-branches';
 // Set these to the project URL and publishable key from Supabase project settings.
 const SUPABASE_URL = 'https://edlpujkyxjcubvjdcmle.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_pUmRfJJ4gkyL7XA6pXsS1A_N-h5Udu8';

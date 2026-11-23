@@ -35,15 +35,17 @@ Deno.test('a rotation changes shift ownership without editing the recurring temp
   assert.equal(shiftAt(shiftSpans([shift('z','17:00','01:30'),shift('a','17:00','01:30')]),at('17:00'))?.userId,'a')
 })
 
-Deno.test('roster editors see direct reports across tiers while reporting descendants share an operational team',()=>{
+Deno.test('Tier 1 edits direct reports and Tier 2 edits their whole branch below the next roster lead',()=>{
   const person=(id:string,tier:number,manager_id:string|null)=>({id,display_name:id,tier,manager_id,active:true})
   const people=[person('manager',1,null),person('lead',2,'manager'),person('other',2,'manager'),
-    person('analyst',5,'manager'),person('supervisor',3,'lead'),person('operator',5,'supervisor')]
+    person('analyst',5,'manager'),person('supervisor',3,'lead'),person('operator',5,'supervisor'),
+    person('trainee',6,'operator'),person('peerStaff',5,'other'),{...person('inactive',5,'supervisor'),active:false}]
   const byId=new Map(people.map(person=>[person.id,person]))
   assert.equal(rosterTeam(byId,'lead'),'manager')
   assert.equal(rosterTeam(byId,'operator'),'lead')
   assert.deepEqual(editableRosterMembers(people,'manager',1,'manager').map(p=>p.id),['lead','other','analyst'])
-  assert.deepEqual(editableRosterMembers(people,'lead',2,'lead').map(p=>p.id),['supervisor'])
+  assert.deepEqual(editableRosterMembers(people,'lead',2,'lead').map(p=>p.id),['supervisor','operator','trainee'])
   assert.deepEqual(editableRosterMembers(people,'lead',2,'other'),[])
+  assert.deepEqual(editableRosterMembers(people,'other',2,'other').map(p=>p.id),['peerStaff'])
   assert.deepEqual(editableRosterMembers(people,'supervisor',3,'supervisor'),[])
 })

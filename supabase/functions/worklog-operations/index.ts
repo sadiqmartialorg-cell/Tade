@@ -60,8 +60,7 @@ function editablePeople(ctx:Context,teamId:string) {
 function allowedRosterTeams(ctx:Context) {
   const ownTeam = rosterTeamFor(ctx,ctx.actor.id)
   const managers = ctx.people.filter(person=>person.active && (person.tier??9999)<=2)
-  const visible = new Set([ownTeam])
-  if (ctx.tier<=2) visible.add(ctx.actor.id)
+  const visible = new Set([ctx.tier<=2 ? ctx.actor.id : ownTeam])
   if (ctx.tier===1) for (const person of managers) { if(ctx.scope.has(person.id)) visible.add(person.id) }
   if (ctx.tier===2) for (const person of managers) { if(person.tier===2) visible.add(person.id) }
   return [...visible].map(id=>({
@@ -598,10 +597,10 @@ Deno.serve(async request=>{
       if(!validDate(week)||monday(week)!==week)throw Error('Choose a Monday')
       const teams=allowedRosterTeams(ctx),teamId=String(args.teamId||teams[0]?.id||'')
       const team=requireRosterTeam(ctx,teamId)
-      const editable=editablePeople(ctx,teamId).map(person=>person.id)
-      const privateParent=ctx.tier===2&&teamId!==id&&rosterTeamFor(ctx,id)===teamId
-      const people=privateParent?[ctx.actor]:rosterTeamPeople(ctx,teamId)
-      if(teamId===id&&!people.some(person=>person.id===id))people.unshift(ctx.actor)
+      const editableMembers=editablePeople(ctx,teamId)
+      const editable=editableMembers.map(person=>person.id)
+      const people=team.canManage ? editableMembers : rosterTeamPeople(ctx,teamId)
+        .filter(person=>ctx.tier>2 || person.id!==id)
       const ids=[...new Set(people.map(person=>person.id))]
       const [published,draft,weekRow]=await Promise.all([
         ids.length?result(admin.from('worklog_roster_shifts').select('user_id,work_date,published_kind,published_start,published_end').eq('week_start',week).in('user_id',ids)):[],
@@ -617,7 +616,7 @@ Deno.serve(async request=>{
       const week=String(args.week||''),teamId=String(args.teamId||'')
       requireRosterTeam(ctx,teamId,true)
       const owner=requirePerson(ctx,args.userId)
-      if(!editablePeople(ctx,teamId).some(person=>person.id===owner.id))throw Error('Only direct reports can be edited')
+      if(!editablePeople(ctx,teamId).some(person=>person.id===owner.id))throw Error('This person is outside your editable roster team')
       const dates=Array.isArray(args.dates)?args.dates.map(String):[]
       if(!validDate(week)||monday(week)!==week||!dates.length||dates.length>7
         ||dates.some((date:string)=>!validDate(date)||date<week||date>addDays(week,6)))
