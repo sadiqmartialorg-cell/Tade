@@ -29,7 +29,7 @@ type Context = { actor:Person; people:Person[]; byId:Map<string,Person>; scope:S
 async function context(userId: string): Promise<Context> {
   const [people,roles,modules,activeModules]=await Promise.all([
     result(admin.from('adhoc_profiles').select('id,display_name,manager_id,job_role,active')),
-    result(admin.from('tade_roles').select('name,rank').eq('is_access_role',false)),
+    result(admin.from('Work_log_roles').select('name,rank').eq('is_access_role',false)),
     result(admin.from('worklog_user_modules').select('module_key').eq('user_id',userId)),
     result(admin.from('worklog_modules').select('key').eq('active',true)),
   ])
@@ -136,7 +136,7 @@ function publishedShift(row:any):WorkingShift {
 async function readRosterPeople():Promise<Person[]> {
   const [people,roles]=await Promise.all([
     result(admin.from('adhoc_profiles').select('id,display_name,manager_id,job_role,active')),
-    result(admin.from('tade_roles').select('name,rank').eq('is_access_role',false)),
+    result(admin.from('Work_log_roles').select('name,rank').eq('is_access_role',false)),
   ])
   const rank=new Map(roles.map((role:any)=>[role.name,role.rank]))
   return people.map((person:Person)=>({...person,tier:rank.get(person.job_role)??9999}))

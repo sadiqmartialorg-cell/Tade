@@ -71,7 +71,7 @@ Deno.serve(async (req: Request) => {
     }
     const settingsPermissions = async () => {
       const profile = await ownProfile()
-      const { data: role, error } = await serviceClient().from('tade_roles')
+      const { data: role, error } = await serviceClient().from('Work_log_roles')
         .select('rank').eq('name', profile.job_role ?? '').eq('is_access_role', false).maybeSingle()
       if (error) throw error
       const tier = role?.rank ?? null
@@ -143,14 +143,14 @@ Deno.serve(async (req: Request) => {
       const workRoles = roles.filter(r => r !== 'User Admin')
       if (!roles.length || roles.length > 2 || workRoles.length !== 1 || roles.some(r => !r || r.length > 80) || new Set(roles).size !== roles.length)
         throw new Error('Choose one work role and optionally add User Admin')
-      const { data, error } = await serviceClient().from('tade_roles').select('name,is_access_role').in('name', roles)
+      const { data, error } = await serviceClient().from('Work_log_roles').select('name,is_access_role').in('name', roles)
       if (error) throw error
       if (data?.length !== roles.length || data.some(r => r.is_access_role && r.name !== 'User Admin'))
         throw new Error('Choose valid WorkLog roles')
       return roles
     }
     const tiers = async () => {
-      const { data, error } = await serviceClient().from('tade_roles').select('name,rank,is_access_role')
+      const { data, error } = await serviceClient().from('Work_log_roles').select('name,rank,is_access_role')
       if (error) throw error
       return new Map((data ?? []).filter(r => !r.is_access_role).map(r => [r.name, r.rank]))
     }
@@ -466,7 +466,7 @@ Deno.serve(async (req: Request) => {
       if (error) throw error
       const [roleResult, managerResult] = await Promise.all([
         profile.job_role
-          ? admin.from('tade_roles').select('rank').eq('name', profile.job_role).maybeSingle()
+          ? admin.from('Work_log_roles').select('rank').eq('name', profile.job_role).maybeSingle()
           : Promise.resolve({ data: null, error: null }),
         profile.manager_id
           ? admin.from('adhoc_profiles').select('display_name').eq('id', profile.manager_id).maybeSingle()
@@ -483,7 +483,7 @@ Deno.serve(async (req: Request) => {
         admin.from('adhoc_profiles')
           .select('id,display_name,job_role,manager_id,tree_col,tree_row')
           .eq('active', true).eq('tree_placed', true).order('display_name'),
-        admin.from('tade_roles').select('name,rank').eq('is_access_role', false),
+        admin.from('Work_log_roles').select('name,rank').eq('is_access_role', false),
       ])
       if (people.error) throw people.error
       if (roles.error) throw roles.error
@@ -491,7 +491,7 @@ Deno.serve(async (req: Request) => {
     }
     if (action === 'list_roles') {
       await assertUserAdmin()
-      const { data, error } = await serviceClient().from('tade_roles')
+      const { data, error } = await serviceClient().from('Work_log_roles')
         .select('name,rank,is_access_role').order('rank').order('name')
       if (error) throw error
       return json(data)
@@ -502,7 +502,7 @@ Deno.serve(async (req: Request) => {
       const rank = Number(args.rank)
       if (name.length < 2 || name.length > 80 || !Number.isInteger(rank) || rank < 1 || rank > 9999)
         throw new Error('Enter a role name and tier from 1 to 9999')
-      const { data, error } = await serviceClient().from('tade_roles')
+      const { data, error } = await serviceClient().from('Work_log_roles')
         .insert({ name, rank, is_access_role: false }).select('name,rank,is_access_role').single()
       if (error) throw error
       return json(data)
@@ -519,7 +519,7 @@ Deno.serve(async (req: Request) => {
         .select('id,manager_id,job_role,tree_placed')
       if (peopleError) throw peopleError
       assertTreeTiers(people ?? [], roleTiers)
-      const { data, error } = await serviceClient().from('tade_roles')
+      const { data, error } = await serviceClient().from('Work_log_roles')
         .update({ rank }).eq('name', name).eq('is_access_role', false)
         .select('name,rank,is_access_role').single()
       if (error) throw error
