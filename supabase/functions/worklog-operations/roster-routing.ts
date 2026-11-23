@@ -47,8 +47,12 @@ export function shiftSpans(rows:WorkingShift[]) {
 
 export type ShiftSpan = ReturnType<typeof shiftSpans>[number]
 
+export function shiftsAt(shifts:ShiftSpan[], at:number) {
+  return shifts.filter(shift => shift.start <= at && at < shift.end)
+}
+
 export function shiftAt(shifts:ShiftSpan[], at:number, preferredId?:string|null) {
-  const present = shifts.filter(shift => shift.start <= at && at < shift.end)
+  const present = shiftsAt(shifts,at)
   return present.find(shift => shift.userId === preferredId) || present[0] || null
 }
 

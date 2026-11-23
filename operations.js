@@ -112,7 +112,7 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
       <p><strong>Assignee</strong> ${esc(names.get(item.owner_id)||'Unassigned')}</p>
       <p><strong>${item.kind==='check'?'Scheduled':'Due'}</strong> ${esc(quickDateTime(activityTime(item)))}</p>
       ${item.kind==='check'?`<p><strong>Completion window closes</strong> ${esc(quickDateTime(item.window_end_at))}</p>`:''}
-      ${item.coverage_gap?'<p class="ops-roster-alert">No eligible shift at the scheduled time.</p>':''}
+      ${item.coverage_gap?'<p class="ops-roster-alert">Coverage gap. A team member with Daily Activity access must be on shift at the scheduled time.</p>':''}
       ${assignment?`<p>Assigned shift ${esc(quickDateTime(assignment.startsAt))} to ${esc(quickDateTime(assignment.endsAt))}${assignment.rosterVersion!=null?' · Roster v'+esc(assignment.rosterVersion):''}</p>`:''}
       ${item.instructions?`<p class="ops-activity-instructions">${esc(item.instructions)}</p>`:''}
       ${item.steps?.length?`<ul>${item.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ul>`:''}
@@ -411,10 +411,13 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     const entry=rosterCoverage?.markers?.find(check=>check.id===id);
     if(!entry)return;
     const people=(entry.people||[]).filter(Boolean);
+    const blockedStaff=entry.staffWithoutActivityAccess||[];
     $('staffingHour').innerHTML=`<strong>${esc(entry.check)} · ${esc(quickDateTime(entry.time))}</strong>
       <div>${esc(entry.customer||'Customer')} · ${esc(roster.teams.find(team=>team.id===roster.teamId)?.name||'Team')}</div>
       <div>${entry.reason?esc(entry.reason):'Assignee · '+esc(entry.assignee)}</div>
-      <div>${people.length?'Eligible staff on shift · '+esc(people.join(', ')):'No eligible staff on shift'}</div>`;
+      ${people.length?`<div>Eligible staff on shift · ${esc(people.join(', '))}</div>`:''}
+      ${blockedStaff.length?`<div>On shift without Daily Activity access · ${esc(blockedStaff.join(', '))}</div>`:''}
+      ${entry.reason&&entry.suggestion?`<div>${esc(entry.suggestion)}</div>`:''}`;
     $('staffingHour').scrollIntoView({block:'nearest'});
   }
   function showStaffingHour(dayIndex,hour,button){
@@ -440,7 +443,7 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
       :markers.every(check=>!check.reason)?'<p class="ops-roster-ok">All scheduled checks are covered.</p>':'';
     const checkList=markers.map(check=>`<li><button type="button" class="ops-link-button" onclick="showCoverageCheck('${check.id}')">${esc(quickDateTime(check.time))} · ${esc(check.check)}</button> · ${esc(check.assignee||'Coverage gap')}</li>`).join('');
     $('rosterCoverage').innerHTML=`${staffingPlanner(data.staffing,data.markers)}<section class="ops-roster-coverage"><div class="ops-roster-coverage-head"><h3>Activity coverage</h3><span>${markers.length} scheduled checks · ${changes.length} draft changes</span></div>
-        ${gaps.map(gap=>warning(gap,'ops-roster-alert',gap.reason+'. Add a shift or extend the hours of an eligible team member.')).join('')}
+        ${gaps.map(gap=>warning(gap,'ops-roster-alert',`${gap.reason}. ${gap.suggestion||'Add or extend a shift for a team member with Daily Activity access.'}`)).join('')}
         ${early.map(check=>warning(check,'ops-roster-early',`${check.reason} at ${when(check.deadline)} IST`)).join('')}${status}
         ${markers.length?`<details ${coverageDay?'open':''}><summary>Scheduled checks</summary><ul class="ops-coverage-check-list">${checkList}</ul></details>`:''}</section>`;
   }

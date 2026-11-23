@@ -4,7 +4,7 @@ import {scheduledIdentity,vapidKeys} from './security.ts'
 import {addDays,istDate,istStamp,monday,startEnd,nextPublishedShiftEnd,ownerFor,buildCheckRows,coverage,staffingWeek} from './schedule.ts'
 import {eligibleTaskOwners,type OneTimeKind} from './task-routing.ts'
 import {canCarryCheck,handoverShifts,type Transfer} from './handover.ts'
-import {editableRosterMembers,rosterTeam,shiftAt,shiftSpans,shiftRecord,type WorkingShift} from './roster-routing.ts'
+import {editableRosterMembers,rosterTeam,shiftAt,shiftsAt,shiftSpans,shiftRecord,type WorkingShift} from './roster-routing.ts'
 
 const CORS = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods':'GET,POST,OPTIONS' }
 const reply = (body: unknown, status=200) => new Response(JSON.stringify(body), { status, headers:{ ...CORS, 'Content-Type':'application/json' } })
@@ -146,7 +146,7 @@ async function loadShiftRouting(from:string,to:string,rows?:WorkingShift[],peopl
     result(admin.from('worklog_user_modules').select('user_id').eq('module_key','daily_activity')),
     rows||rosterRows(from,to).then(rows=>rows.map(publishedShift)),
   ])
-  const enabled=new Set(grants.map((grant:any)=>grant.user_id))
+  const enabled=new Set<string>(grants.map((grant:any)=>grant.user_id))
   const byId=new Map<string,Person>(staff.map(person=>[person.id,person]))
   const teams=new Map<string,ReturnType<typeof shiftSpans>>()
   for(const shift of shiftSpans(working)) {
@@ -156,7 +156,7 @@ async function loadShiftRouting(from:string,to:string,rows?:WorkingShift[],peopl
     spans.push(shift)
     teams.set(team,spans)
   }
-  return {teams,byId}
+  return {teams,byId,enabled}
 }
 function setInitialAssignment(item:ActivityCheck,routing:ShiftRouting) {
   const shift=shiftAt(routing.teams.get(item.roster_team_id!)||[],Date.parse(item.window_start_at))
@@ -281,26 +281,32 @@ async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffi
   const draftCoverage=shifts.map(shift=>({user_id:shift.user_id,work_date:shift.work_date,
     draft_kind:shift.kind||'off',draft_start:shift.start_time,draft_end:shift.end_time}))
   const routing=await loadShiftRouting(week,until,shifts,ctx.people)
+  const teamSpans=shiftSpans(shifts.filter(shift=>teamIds.has(shift.user_id)))
+  const eligibleSpans=routing.teams.get(teamId)||[]
+  const shiftNames=(ids:string[])=>[...new Set(ids)].map(id=>ctx.byId.get(id)?.display_name).filter(Boolean)
   const names=new Map(customers.map((x:any)=>[x.id,x.name]))
   const gaps=[] as any[], early=[] as any[], markers=[] as any[]
   const scoped=items.filter((item:any)=>item.status!=='cancelled' &&
     (item.roster_team_id===teamId || !item.roster_team_id&&(teamIds.has(item.owner_id)||teamIds.has(item.backup_owner_id))))
   for(const item of scoped){
     const time=Date.parse(item.window_start_at)
-    const spans=routing.teams.get(teamId)||[]
-    const match=item.roster_team_id?shiftAt(spans,time):null
+    const match=item.roster_team_id?shiftAt(eligibleSpans,time):null
     const legacy=!item.roster_team_id?coverage(item,draftCoverage,true):null
     const eligible=match?.userId||legacy?.primary.find(span=>span.start<=time&&time<span.end)?.id||
       legacy?.backup.find(span=>span.start<=time&&time<span.end)?.id||null
+    const blockedStaff=item.roster_team_id?shiftsAt(teamSpans,time).filter(shift=>!routing.enabled.has(shift.userId)):[]
+    const noActivityAccess=!eligible&&blockedStaff.length>0
     const userId=eligible&&editableIds.includes(eligible)?eligible:editableIds.includes(item.owner_id)?item.owner_id:null
     const entry={id:item.id,userId,date:item.scheduled_date,time:item.window_start_at,customer:names.get(item.customer_id),
       check:item.title,assignee:ctx.byId.get(eligible||'')?.display_name||null,
-      people:spans.filter(span=>span.start<=time&&time<span.end).map(span=>ctx.byId.get(span.userId)?.display_name),
-      reason:eligible?null:'No eligible shift at the scheduled time'}
+      people:shiftNames(shiftsAt(eligibleSpans,time).map(shift=>shift.userId)),
+      staffWithoutActivityAccess:shiftNames(blockedStaff.map(shift=>shift.userId)),
+      reason:eligible?null:noActivityAccess?'Scheduled staff lack Daily Activity access':'No eligible shift at the scheduled time',
+      suggestion:noActivityAccess?'Ask a User Admin to enable Daily Activity for the staff who should take this check.':'Add or extend a shift for a team member with Daily Activity access.'}
     markers.push(entry)
     if(item.status!=='open'||Date.parse(item.window_end_at)<=Date.now())continue
     if(!eligible&&(item.roster_team_id||!legacy?.covered))gaps.push(entry)
-    else if(match&&match.end<Date.parse(item.window_end_at)&&!shiftAt(spans,match.end)){
+    else if(match&&match.end<Date.parse(item.window_end_at)&&!shiftAt(eligibleSpans,match.end)){
       early.push({...entry,deadline:new Date(match.end).toISOString(),reason:'Eligible coverage ends before the window closes'})
     }
   }
