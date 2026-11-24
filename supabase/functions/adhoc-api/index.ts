@@ -17,6 +17,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 })
 
 const workEmail = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?@talview\.com$/
+const isTalviewEmail = (email: string) => workEmail.test(email) && !email.includes('..')
 const requesterColumns = 'id,name,email,department_id'
 
 function requesterName(email: string, displayName?: string | null) {
@@ -212,8 +213,34 @@ Deno.serve(async (req: Request) => {
       if (moduleKey !== 'reporting_tracker') throw new Error('Open Reporting Tracker first')
       await assertTracker()
       const admin = serviceClient()
+      const findSaved = async (email: string) => {
+        const { data, error } = await admin.from('reporting_people')
+          .select(`${requesterColumns},active,reporting_departments!inner(active)`).eq('email', email).maybeSingle()
+          .overrideTypes<{id:string;name:string;department_id:string;active:boolean;reporting_departments:{active:boolean}}, {merge:false}>()
+        if (error) throw error
+        if (!data) return null
+        if (!data.active || !data.reporting_departments?.active)
+          throw new Error('This requirement raiser or their department is inactive. Ask a Tier 1 or Tier 2 user to review it in Settings.')
+        const { id, name, department_id } = data
+        return { id, name, email, department_id }
+      }
+      const findDirectoryName = async (email: string) => {
+        const { data, error } = await admin.from('adhoc_profiles').select('display_name')
+          .eq('email', email).eq('active', true).limit(1).maybeSingle()
+        if (error) throw error
+        return data?.display_name?.trim() || null
+      }
       if (action === 'reporting_requester_search') {
-        const term = String(args.query ?? '').replace(/[^\p{L}\p{N} .@+_-]/gu, '').trim().slice(0, 96)
+        const query = String(args.query ?? '').trim()
+        const email = query.toLowerCase()
+        if (isTalviewEmail(email)) {
+          const saved = await findSaved(email)
+          if (saved) return json([saved])
+          const displayName = await findDirectoryName(email)
+          return json([{ id: null, name: requesterName(email, displayName), email,
+            department_id: null, source: displayName ? 'directory' : 'email' }])
+        }
+        const term = query.replace(/[^\p{L}\p{N} .@+_-]/gu, '').trim().slice(0, 96)
         if (term.length < 2) return json([])
         const match = `*${term.replaceAll('_', '\\_')}*`
         const [saved, directory] = await Promise.all([
@@ -230,7 +257,7 @@ Deno.serve(async (req: Request) => {
         const savedEmails = new Set(people.map(person => person.email))
         for (const entry of directory.data ?? []) {
           const email = entry.email?.trim().toLowerCase()
-          if (!email || !workEmail.test(email) || email.includes('..') || savedEmails.has(email)) continue
+          if (!email || !isTalviewEmail(email) || savedEmails.has(email)) continue
           savedEmails.add(email)
           people.push({ id: null, name: requesterName(email, entry.display_name), email, department_id: null })
         }
@@ -238,36 +265,24 @@ Deno.serve(async (req: Request) => {
       }
 
       const email = String(args.email ?? '').trim().toLowerCase()
-      if (!workEmail.test(email) || email.includes('..')) throw new Error('Enter a valid @talview.com email address')
-      const findSaved = async () => {
-        const { data, error } = await admin.from('reporting_people')
-          .select(`${requesterColumns},active,reporting_departments!inner(active)`).eq('email', email).maybeSingle()
-          .overrideTypes<{id:string;name:string;department_id:string;active:boolean;reporting_departments:{active:boolean}}, {merge:false}>()
-        if (error) throw error
-        if (!data) return null
-        if (!data.active || !data.reporting_departments?.active)
-          throw new Error('This requirement raiser or their department is inactive. Ask a Tier 1 or Tier 2 user to review it in Settings.')
-        const { id, name, department_id } = data
-        return { id, name, email, department_id }
-      }
-      const existing = await findSaved()
+      if (!isTalviewEmail(email)) throw new Error('Enter a valid @talview.com email address')
+      const existing = await findSaved(email)
       if (existing) return json(existing)
 
       const departmentId = String(args.departmentId ?? '')
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentId))
         throw new Error('Choose a department before adding this person')
-      const [department, profile] = await Promise.all([
+      const [department, displayName] = await Promise.all([
         admin.from('reporting_departments').select('id').eq('id', departmentId).eq('active', true).maybeSingle(),
-        admin.from('adhoc_profiles').select('display_name').eq('email', email).eq('active', true).limit(1).maybeSingle(),
+        findDirectoryName(email),
       ])
       if (department.error) throw department.error
-      if (profile.error) throw profile.error
       if (!department.data) throw new Error('Choose an active Reporting Tracker department')
-      const name = requesterName(email, profile.data?.display_name)
+      const name = requesterName(email, displayName)
       const { data, error } = await admin.from('reporting_people').insert({email, name, department_id:departmentId})
         .select(requesterColumns).single()
       if (error?.code === '23505') {
-        const alreadyAdded = await findSaved()
+        const alreadyAdded = await findSaved(email)
         if (alreadyAdded) return json(alreadyAdded)
       }
       if (error) throw error

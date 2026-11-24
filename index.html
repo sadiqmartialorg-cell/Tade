@@ -256,15 +256,18 @@ function showRequesterMatches(matches){
   list.hidden=!matches.length;
   list.innerHTML=matches.map((person,index)=>{
     const department=(configs.departments||[]).find(dept=>dept.id===person.department_id);
-    return `<button type="button" data-requester="${index}"><strong>${esc(person.name)}</strong><small>${esc([person.email,person.id?(department?.name||'Saved requester'):'WorkLog directory'].filter(Boolean).join(' · '))}</small></button>`;
+    const source=person.id?(department?.name||'Saved requester'):person.source==='email'?'New requirement raiser':'WorkLog directory';
+    return `<button type="button" data-requester="${index}"><strong>${esc(person.name)}</strong><small>${esc([person.email,source].filter(Boolean).join(' · '))}</small></button>`;
   }).join('');
 }
-function updateRequesterStatus(message){
+function updateRequesterStatus(message,candidate){
   const email=requesterEmail();
-  $('addRequester').hidden=Boolean(selectedRequester)||!email;
+  const button=$('addRequester');
+  button.hidden=Boolean(selectedRequester)||!email||Boolean(candidate?.id);
+  button.textContent=candidate&&!candidate.id?`Add ${candidate.name}`:'Add and select person';
   $('requesterStatus').textContent=message??(selectedRequester?`Selected: ${selectedRequester.name}.`:email
-    ?'Select a match or choose a department and add this Talview email.'
-    :'Search saved people by name, or enter a Talview work email.');
+    ?'Choose a department to add a new Talview email.'
+    :'Search by name or enter a full @talview.com email to add someone new.');
 }
 function resetRequester(){
   selectedRequester=null;
@@ -281,7 +284,7 @@ function selectRequester(person){
   $('raisedBy').value=person.email||person.name;
   selectedRequester=person.id?person:null;
   if(selectedRequester)$('department').value=person.department_id;
-  updateRequesterStatus(selectedRequester?undefined:`${person.name} · Choose a department and add this person.`);
+  updateRequesterStatus(selectedRequester?undefined:`Choose a department for ${person.name}, then add them.`,person);
 }
 function searchRequesters(){
   selectedRequester=null;
@@ -297,7 +300,10 @@ function searchRequesters(){
       const matches=await api('reporting_requester_search',{module:'reporting_tracker',query});
       if(search!==requesterSearch||activeModule!=='reporting_tracker')return;
       showRequesterMatches(matches);
-      if(!matches.length)updateRequesterStatus(requesterEmail()?'No saved match. Choose a department and add this email.':'No matching people. Enter a Talview work email to add someone.');
+      const candidate=matches.find(person=>person.email===requesterEmail());
+      if(candidate?.id)updateRequesterStatus(`Select ${candidate.name} to fill in their department.`,candidate);
+      else if(candidate)updateRequesterStatus(`Choose a department for ${candidate.name}, then add them.`,candidate);
+      else if(!matches.length)updateRequesterStatus('No matching people. Enter a full @talview.com email to add someone new.');
     }catch(error){if(search===requesterSearch)updateRequesterStatus(error.message);}
   },260);
 }
