@@ -16,6 +16,14 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 })
 
+const workEmail = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?@talview\.com$/
+const requesterColumns = 'id,name,email,department_id'
+
+function requesterName(email: string, displayName?: string | null) {
+  return displayName?.trim().slice(0, 120) || email.split('@')[0].split(/[._+-]+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+}
+
 function sessionView(s: Record<string, unknown>) {
   return {
     id: s.id, runnerName: s.runner_name, state: s.state, workDate: s.work_date,
@@ -200,6 +208,72 @@ Deno.serve(async (req: Request) => {
       return json(await moduleBootstrap())
     }
 
+    if (action === 'reporting_requester_search' || action === 'reporting_requester_add') {
+      if (moduleKey !== 'reporting_tracker') throw new Error('Open Reporting Tracker first')
+      await assertTracker()
+      const admin = serviceClient()
+      if (action === 'reporting_requester_search') {
+        const term = String(args.query ?? '').replace(/[^\p{L}\p{N} .@+_-]/gu, '').trim().slice(0, 96)
+        if (term.length < 2) return json([])
+        const match = `*${term.replaceAll('_', '\\_')}*`
+        const [saved, directory] = await Promise.all([
+          admin.from('reporting_people').select(`${requesterColumns},reporting_departments!inner(active)`)
+            .eq('active', true).eq('reporting_departments.active', true)
+            .or(`name.ilike.${match},email.ilike.${match}`).order('name').limit(8),
+          admin.from('adhoc_profiles').select('display_name,email').eq('active', true)
+            .ilike('email', '%@talview.com').or(`display_name.ilike.${match},email.ilike.${match}`).order('display_name').limit(8),
+        ])
+        if (saved.error) throw saved.error
+        if (directory.error) throw directory.error
+        const people: Array<{id: string | null; name: string; email: string | null; department_id: string | null}> =
+          (saved.data ?? []).map(({id,name,email,department_id}) => ({id,name,email,department_id}))
+        const savedEmails = new Set(people.map(person => person.email))
+        for (const entry of directory.data ?? []) {
+          const email = entry.email?.trim().toLowerCase()
+          if (!email || !workEmail.test(email) || email.includes('..') || savedEmails.has(email)) continue
+          savedEmails.add(email)
+          people.push({ id: null, name: requesterName(email, entry.display_name), email, department_id: null })
+        }
+        return json(people.slice(0, 10))
+      }
+
+      const email = String(args.email ?? '').trim().toLowerCase()
+      if (!workEmail.test(email) || email.includes('..')) throw new Error('Enter a valid @talview.com email address')
+      const findSaved = async () => {
+        const { data, error } = await admin.from('reporting_people')
+          .select(`${requesterColumns},active,reporting_departments!inner(active)`).eq('email', email).maybeSingle()
+          .overrideTypes<{id:string;name:string;department_id:string;active:boolean;reporting_departments:{active:boolean}}, {merge:false}>()
+        if (error) throw error
+        if (!data) return null
+        if (!data.active || !data.reporting_departments?.active)
+          throw new Error('This requirement raiser or their department is inactive. Ask a Tier 1 or Tier 2 user to review it in Settings.')
+        const { id, name, department_id } = data
+        return { id, name, email, department_id }
+      }
+      const existing = await findSaved()
+      if (existing) return json(existing)
+
+      const departmentId = String(args.departmentId ?? '')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentId))
+        throw new Error('Choose a department before adding this person')
+      const [department, profile] = await Promise.all([
+        admin.from('reporting_departments').select('id').eq('id', departmentId).eq('active', true).maybeSingle(),
+        admin.from('adhoc_profiles').select('display_name').eq('email', email).eq('active', true).limit(1).maybeSingle(),
+      ])
+      if (department.error) throw department.error
+      if (profile.error) throw profile.error
+      if (!department.data) throw new Error('Choose an active Reporting Tracker department')
+      const name = requesterName(email, profile.data?.display_name)
+      const { data, error } = await admin.from('reporting_people').insert({email, name, department_id:departmentId})
+        .select(requesterColumns).single()
+      if (error?.code === '23505') {
+        const alreadyAdded = await findSaved()
+        if (alreadyAdded) return json(alreadyAdded)
+      }
+      if (error) throw error
+      return json(data)
+    }
+
     if (action === 'create_runner') {
       await assertTracker()
       const { data, error } = await supabase.rpc(moduleKey === 'ms_tracker' ? 'adhoc_create_session' : 'reporting_create_session', { p_runner_name: args.name })
@@ -322,13 +396,15 @@ Deno.serve(async (req: Request) => {
         const query = admin.from(table).select('id,name,active,sort_order').order('sort_order').order('name')
         return permissions.manage ? query : query.eq('active', true)
       }
+      const peopleFields = permissions.manage ? 'id,name,email,department_id,active,sort_order' : 'id,name,department_id,active,sort_order'
+      const peopleQuery = tables.people ? admin.from(tables.people).select(peopleFields).order('sort_order').order('name') : null
       const [departments, customers, tasks, people] = await Promise.all([
         readConfig(tables.departments), readConfig(tables.customers), readConfig(tables.tasks),
-        tables.people ? admin.from(tables.people).select('id,name,department_id,active,sort_order').order('sort_order').order('name') : Promise.resolve({ data: [], error: null }),
+        peopleQuery ? (permissions.manage ? peopleQuery : peopleQuery.eq('active', true)) : { data: [], error: null },
       ])
       for (const result of [departments, customers, tasks, people]) if (result.error) throw result.error
       return json({ departments: departments.data, customers: customers.data, tasks: tasks.data,
-        people: permissions.manage ? people.data : (people.data ?? []).filter(p => p.active), permissions })
+        people: people.data, permissions })
     }
     if (action === 'config_add') {
       await assertTracker()
@@ -371,7 +447,7 @@ Deno.serve(async (req: Request) => {
         values.department_id = department.id
       }
       const { data, error } = await serviceClient().from(table).update(values)
-        .eq('id', id).select(type === 'people' ? 'id,name,active,sort_order,department_id' : 'id,name,active,sort_order').maybeSingle()
+        .eq('id', id).select(type === 'people' ? `${requesterColumns},active,sort_order` : 'id,name,active,sort_order').maybeSingle()
       if (error) throw error
       if (!data) throw new Error('Entry not found')
       return json(data)

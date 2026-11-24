@@ -43,12 +43,12 @@
 .view-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;min-height:40px;margin:0 0 12px;flex-wrap:wrap}
 #users .users-page-heading{justify-content:flex-end}
 @media(max-width:720px){.workspace{padding:12px}.workspace-toolbar{align-items:flex-start}.workspace-toolbar .tabs{gap:3px}.workspace-toolbar .tabs button{padding:8px 9px}.view-actions{justify-content:flex-start}}
-</style><link rel="stylesheet" href="./board.css"><link rel="stylesheet" href="./work.css"><link rel="stylesheet" href="./settings.css"><link rel="stylesheet" href="./users.css"><link rel="stylesheet" href="./operations.css?v=activity-roster-ui"><link rel="stylesheet" href="./roster-shifts.css"></head><body>
+</style><link rel="stylesheet" href="./board.css"><link rel="stylesheet" href="./work.css?v=requester-search"><link rel="stylesheet" href="./settings.css"><link rel="stylesheet" href="./users.css"><link rel="stylesheet" href="./operations.css?v=activity-roster-ui"><link rel="stylesheet" href="./roster-shifts.css"></head><body>
 <main id="login" class="panel single login"><h1>Talview WorkLog</h1><p class="sub">Sign in to WorkLog Workspace.</p><form id="loginForm"><div class="field"><label>Email</label><input id="loginEmail" type="email" required autocomplete="username"></div><div class="field"><label>Password</label><input id="loginPassword" type="password" required autocomplete="current-password"></div><button id="loginButton">Sign in</button><div id="loginError" class="error"></div></form></main>
 <main id="app" class="shell app-shell" hidden>
 <aside class="sidebar"><div class="sidebar-brand"><span class="worklog-mark" aria-hidden="true">W</span><span>WorkLog</span></div><nav class="sidebar-nav primary-nav" aria-label="WorkLog modules"><button id="trackerNav" class="nav-button primary-nav-button active" onclick="openTracker('ms_tracker')">◉ &nbsp; MS Tracker</button><button id="reportingNav" class="nav-button primary-nav-button" onclick="openTracker('reporting_tracker')">▣ &nbsp; Reporting Tracker</button><button id="dailyNav" class="nav-button primary-nav-button" onclick="openDaily()">☑ &nbsp; Daily Activity</button><button id="rosterNav" class="nav-button primary-nav-button" onclick="openRoster()">▦ &nbsp; Roster</button><button id="usersNav" class="nav-button primary-nav-button" onclick="openUsers()">♙ &nbsp; Users</button></nav><div class="sidebar-spacer"></div><div class="side-user"><b id="sideName"></b><span id="sideRole"></span></div><button class="secondary" onclick="signOut()">Sign out</button></aside>
 <div class="workspace"><div class="workspace-toolbar"><nav id="trackerTabs" class="tabs tracker-tabs" aria-label="Tracker views"><button id="workTab" type="button" class="tracker-tab active" aria-current="page" onclick="showView('work',this)">Work</button><button id="dashboardTab" type="button" class="tracker-tab" onclick="loadDashboard(this)">Dashboard</button><button id="entriesTab" type="button" class="tracker-tab" onclick="loadDataEntries()">Data entries</button><button id="settingsTab" type="button" class="tracker-tab" onclick="loadSettings(this)">Settings</button></nav><nav id="usersTabs" class="tabs tracker-tabs" aria-label="Users views" hidden><button id="userCreationTab" type="button" class="user-tab active" onclick="loadUsers()">User creation</button><button id="userTreeTab" type="button" class="user-tab" onclick="loadUserTree()">User tree</button><button id="profileTab" type="button" class="user-tab" onclick="loadProfile()" hidden>My profile</button><button id="reportingTab" type="button" class="user-tab" onclick="loadReportingBoard()" hidden>Reporting board</button></nav><nav id="dailyTabs" class="tabs tracker-tabs" aria-label="Daily Activity views" hidden><button id="dailyMineTab" type="button" onclick="openDaily('mine')">My Activity</button><button id="dailyTeamTab" type="button" onclick="openDaily('team')">Team Activity</button><button id="dailySeriesTab" type="button" onclick="openDaily('series')">Recurring schedules</button></nav><button id="inboxButton" type="button" class="inbox-icon secondary" onclick="openInbox()" aria-label="Inbox" title="Inbox"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v12h-5l-2 2h-2l-2-2H4z"/><path d="M4 14h5l2 2h2l2-2h5"/></svg><span id="inboxCount" class="inbox-count"></span></button></div>
-<section id="work" class="view active"><div class="layout"><section class="panel"><h2>Task Builder</h2><p class="sub">Enter completed work and its times directly, or bring in a stopped runner.</p><form id="taskForm"><input type="hidden" id="sessionId"><div id="raisedByField" class="field" hidden><label for="raisedBy">Requirement raised by</label><select id="raisedBy" onchange="syncRaisedByDepartment()"></select></div><div class="field"><label for="department">Department</label><select id="department" aria-describedby="departmentAutoHint" required></select><p id="departmentAutoHint" class="hint" aria-live="polite" hidden></p></div><div class="field"><label>Customer</label><select id="customer" required></select></div><div class="field"><label>Task</label><select id="task" required></select></div><div class="builder-mode"><strong id="builderModeLabel">Manual time entry</strong><button id="manualModeButton" type="button" class="secondary" onclick="useManualBuilder()" hidden>Enter times manually</button></div><div class="row"><div class="field"><label for="workDate">Work date</label><input id="workDate" type="date" required></div><div class="field"><label for="durationText">Duration</label><input id="durationText" readonly placeholder="Calculated from times"></div></div><div class="row timestamp-row"><div class="field"><label for="fromTime">Started at</label><input id="fromTime" type="datetime-local" step="1" oninput="updateManualDuration(true)" required></div><div class="field"><label for="toTime">Stopped at</label><input id="toTime" type="datetime-local" step="1" oninput="updateManualDuration()" required></div></div><div class="field"><label>Remarks</label><textarea id="remarks" placeholder="Optional details"></textarea></div><div class="hint" id="builderHint">Enter start and stop times in your local time zone. Duration is calculated automatically.</div><div class="form-actions"><button id="saveButton">Save task</button><button type="button" class="secondary" onclick="clearBuilder()">Clear</button></div></form></section>
+<section id="work" class="view active"><div class="layout"><section class="panel"><h2>Task Builder</h2><p class="sub">Enter completed work and its times directly, or bring in a stopped runner.</p><form id="taskForm"><input type="hidden" id="sessionId"><div id="raisedByField" class="field" hidden><label for="raisedBy">Requirement raised by</label><input id="raisedBy" type="search" maxlength="96" placeholder="Search by name or @talview.com email" autocomplete="off" aria-describedby="requesterStatus"><div id="requesterSuggestions" class="requester-suggestions" role="group" aria-label="Matching requirement raisers" hidden></div><p id="requesterStatus" class="hint requester-status" aria-live="polite"></p><button type="button" id="addRequester" class="secondary" hidden>Add and select person</button></div><div class="field"><label for="department">Department</label><select id="department" aria-describedby="departmentAutoHint" required></select><p id="departmentAutoHint" class="hint" aria-live="polite" hidden></p></div><div class="field"><label>Customer</label><select id="customer" required></select></div><div class="field"><label>Task</label><select id="task" required></select></div><div class="builder-mode"><strong id="builderModeLabel">Manual time entry</strong><button id="manualModeButton" type="button" class="secondary" onclick="useManualBuilder()" hidden>Enter times manually</button></div><div class="row"><div class="field"><label for="workDate">Work date</label><input id="workDate" type="date" required></div><div class="field"><label for="durationText">Duration</label><input id="durationText" readonly placeholder="Calculated from times"></div></div><div class="row timestamp-row"><div class="field"><label for="fromTime">Started at</label><input id="fromTime" type="datetime-local" step="1" oninput="updateManualDuration(true)" required></div><div class="field"><label for="toTime">Stopped at</label><input id="toTime" type="datetime-local" step="1" oninput="updateManualDuration()" required></div></div><div class="field"><label>Remarks</label><textarea id="remarks" placeholder="Optional details"></textarea></div><div class="hint" id="builderHint">Enter start and stop times in your local time zone. Duration is calculated automatically.</div><div class="form-actions"><button id="saveButton">Save task</button><button type="button" class="secondary" onclick="clearBuilder()">Clear</button></div></form></section>
 <section class="panel"><h2>Task Runner</h2><p class="sub">Start as many timers as you need. They continue through refresh, closed tabs, and sign-out until you pause or stop them.</p><div id="runners" class="runner-list"></div><button id="addRunnerButton" class="add" onclick="addRunner()">＋ Start New Timer</button><p class="hint">Start, pause, resume, and stop times are saved in Supabase. The clocks on this page update locally without database polling.</p></section></div></section>
 <section id="dashboard" class="view"><div class="view-actions"><div class="dashboard-filter"><label for="dashboardRange">Period</label><select id="dashboardRange" onchange="loadDashboard()"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="all">All time</option></select></div></div><div id="dashboardContent" aria-live="polite">Loading…</div></section>
 <section id="dataEntries" class="view"><div class="view-actions"><button id="entriesDownloadButton" type="button" onclick="downloadDataEntries()">Download CSV</button></div><section class="panel entries-panel"><form id="entriesFilterForm" class="entries-filters" onsubmit="applyEntriesFilter(event)"><div class="field"><label for="entriesFrom">From</label><input id="entriesFrom" type="date"></div><div class="field"><label for="entriesTo">To</label><input id="entriesTo" type="date"></div><button type="submit" class="secondary">Apply dates</button><button type="button" class="secondary" onclick="clearEntriesFilter()">Clear</button></form><p class="hint">Leave dates blank to see all accessible entries. The download uses the applied date range.</p><p id="entriesError" class="error" role="alert"></p><div id="entriesContent" class="entries-scroll" role="region" aria-label="Logged work entries" tabindex="0">Open this tab to load entries.</div><div class="entries-pagination"><span id="entriesStatus" aria-live="polite"></span><div><button id="entriesPrevious" type="button" class="secondary" onclick="changeEntriesPage(-1)" disabled>Previous</button><button id="entriesNext" type="button" class="secondary" onclick="changeEntriesPage(1)" disabled>Next</button></div></div></section></section>
@@ -56,7 +56,7 @@
   <section class="panel setting-card"><h3>Departments</h3><form id="departmentForm" onsubmit="saveSetting(event,'departments')"><div class="field"><label for="departmentName">Add department</label><input id="departmentName" maxlength="120" required placeholder="Department name"></div><button>Add department</button></form><div class="setting-list-toolbar"><span id="departmentCount" class="setting-count"></span><input id="departmentSearch" type="search" placeholder="Find department" aria-label="Find department" oninput="filterSettingList('departments')"></div><div id="departmentSettings" class="setting-list" role="region" aria-label="Departments list" tabindex="0"></div></section>
   <section class="panel setting-card"><h3>Customers</h3><form id="customerForm" onsubmit="saveSetting(event,'customers')"><div class="field"><label for="customerName">Add customer</label><input id="customerName" maxlength="120" required placeholder="Customer name"></div><button>Add customer</button></form><div class="setting-list-toolbar"><span id="customerCount" class="setting-count"></span><input id="customerSearch" type="search" placeholder="Find customer" aria-label="Find customer" oninput="filterSettingList('customers')"></div><div id="customerSettings" class="setting-list" role="region" aria-label="Customers list" tabindex="0"></div></section>
   <section class="panel setting-card"><h3>Tasks</h3><form onsubmit="saveSetting(event,'tasks')"><div class="field"><label for="taskName">Add task</label><input id="taskName" maxlength="120" required placeholder="Task name"></div><button>Add task</button></form><div class="setting-list-toolbar"><span id="taskCount" class="setting-count"></span><input id="taskSearch" type="search" placeholder="Find task" aria-label="Find task" oninput="filterSettingList('tasks')"></div><div id="taskSettings" class="setting-list" role="region" aria-label="Tasks list" tabindex="0"></div></section>
-  <section id="peopleSettingsCard" class="panel setting-card" hidden><h3>Requirement raisers</h3><form id="personForm" onsubmit="saveSetting(event,'people')"><div class="field"><label for="personName">Add person</label><input id="personName" maxlength="120" required placeholder="Person name"></div><div class="field"><label for="personDepartment">Department</label><select id="personDepartment" required></select></div><button>Add person</button></form><div class="setting-list-toolbar"><span id="personCount" class="setting-count"></span><input id="personSearch" type="search" placeholder="Find person" aria-label="Find person" oninput="filterSettingList('people')"></div><div id="personSettings" class="setting-list" role="region" aria-label="People list" tabindex="0"></div></section>
+  <section id="peopleSettingsCard" class="panel setting-card" hidden><h3>Requirement raisers</h3><div class="setting-list-toolbar"><span id="personCount" class="setting-count"></span><input id="personSearch" type="search" placeholder="Find person" aria-label="Find requirement raiser" oninput="filterSettingList('people')"></div><div id="personSettings" class="setting-list" role="region" aria-label="People list" tabindex="0"></div></section>
 </div></div></section>
 <section id="profileView" class="view"><div id="profileContent" class="panel profile-card" aria-live="polite">Loading…</div><section class="panel password-panel"><h3>Change password</h3><p class="sub">Enter your current password, then choose a new one for your WorkLog login.</p><form id="changePasswordForm" onsubmit="changePassword(event)"><div class="field"><label for="currentPassword">Current password</label><input id="currentPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="nextPassword">New password</label><input id="nextPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></div><div class="field"><label for="confirmPassword">Confirm new password</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></div><button id="changePasswordButton" type="submit">Update password</button><p id="passwordMessage" class="password-message" role="status" aria-live="polite"></p></form></section></section>
 <section id="reportingView" class="view">
@@ -245,25 +245,90 @@ function duration(s){s=Math.max(0,Math.floor(Number(s)||0));return [Math.floor(s
 function isUserAdmin(){return (user?.roles||[]).includes('User Admin');}
 function moduleName(key){return modules.find(x=>x.key===key)?.name||({ms_tracker:'MS Tracker',reporting_tracker:'Reporting Tracker'}[key]||'Tracker');}
 function canUseTracker(key=activeModule){return modules.some(x=>x.key===key);}
-function updateReportingRequesters(){
-  if(activeModule!=='reporting_tracker')return;
-  const departmentId=$('department').value,people=configs.people||[];
-  const requesters=departmentId?people.filter(person=>person.department_id===departmentId):people;
-  setSelect('raisedBy',requesters);
-  $('raisedBy').disabled=!requesters.length;
-  $('departmentAutoHint').textContent=requesters.length
-    ?'Choose a department to filter requirement raisers, or choose a person to fill in their department.'
-    :`${departmentId?'No active requirement raisers for this department.':'No active requirement raisers in Reporting Tracker.'} A Tier 1 or Tier 2 user can add them in Settings → Requirement raisers.`;
+let selectedRequester=null,requesterMatches=[],requesterSearch=0,requesterTimer;
+const requesterEmail=()=>{
+  const email=$('raisedBy').value.trim().toLowerCase();
+  return /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?@talview\.com$/.test(email)&&!email.includes('..')?email:'';
+};
+function showRequesterMatches(matches){
+  requesterMatches=matches;
+  const list=$('requesterSuggestions');
+  list.hidden=!matches.length;
+  list.innerHTML=matches.map((person,index)=>{
+    const department=(configs.departments||[]).find(dept=>dept.id===person.department_id);
+    return `<button type="button" data-requester="${index}"><strong>${esc(person.name)}</strong><small>${esc([person.email,person.id?(department?.name||'Saved requester'):'WorkLog directory'].filter(Boolean).join(' · '))}</small></button>`;
+  }).join('');
 }
-function syncRaisedByDepartment(){
-  if(activeModule!=='reporting_tracker')return;
-  const person=(configs.people||[]).find(person=>person.id===$('raisedBy').value);
-  if(person)$('department').value=person.department_id;
-  updateReportingRequesters();
+function updateRequesterStatus(message){
+  const email=requesterEmail();
+  $('addRequester').hidden=Boolean(selectedRequester)||!email;
+  $('requesterStatus').textContent=message??(selectedRequester?`Selected: ${selectedRequester.name}.`:email
+    ?'Select a match or choose a department and add this Talview email.'
+    :'Search saved people by name, or enter a Talview work email.');
 }
+function resetRequester(){
+  selectedRequester=null;
+  $('raisedBy').value='';
+  clearTimeout(requesterTimer);
+  requesterSearch++;
+  showRequesterMatches([]);
+  updateRequesterStatus();
+}
+function selectRequester(person){
+  clearTimeout(requesterTimer);
+  requesterSearch++;
+  showRequesterMatches([]);
+  $('raisedBy').value=person.email||person.name;
+  selectedRequester=person.id?person:null;
+  if(selectedRequester)$('department').value=person.department_id;
+  updateRequesterStatus(selectedRequester?undefined:`${person.name} · Choose a department and add this person.`);
+}
+function searchRequesters(){
+  selectedRequester=null;
+  clearTimeout(requesterTimer);
+  const query=$('raisedBy').value.trim(),search=++requesterSearch;
+  const match=query.toLowerCase();
+  const saved=query.length<2?[]:(configs.people||[]).filter(person=>person.name.toLowerCase().includes(match)||person.email?.includes(match)).slice(0,6);
+  showRequesterMatches(saved);
+  updateRequesterStatus();
+  if(query.length<2)return;
+  requesterTimer=setTimeout(async()=>{
+    try{
+      const matches=await api('reporting_requester_search',{module:'reporting_tracker',query});
+      if(search!==requesterSearch||activeModule!=='reporting_tracker')return;
+      showRequesterMatches(matches);
+      if(!matches.length)updateRequesterStatus(requesterEmail()?'No saved match. Choose a department and add this email.':'No matching people. Enter a Talview work email to add someone.');
+    }catch(error){if(search===requesterSearch)updateRequesterStatus(error.message);}
+  },260);
+}
+$('raisedBy').addEventListener('input',searchRequesters);
+$('raisedBy').addEventListener('keydown',event=>{
+  if(event.key==='Escape')showRequesterMatches([]);
+  if(event.key==='ArrowDown'&&requesterMatches.length){event.preventDefault();$('requesterSuggestions').querySelector('button').focus();}
+});
+$('requesterSuggestions').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-requester]');
+  if(button){selectRequester(requesterMatches[Number(button.dataset.requester)]);$('raisedBy').focus();}
+});
+$('addRequester').addEventListener('click',async()=>{
+  const email=requesterEmail(),departmentId=$('department').value,button=$('addRequester'),search=requesterSearch;
+  if(!email)return;
+  if(!departmentId){updateRequesterStatus('Choose a department before adding this person.');$('department').focus();return;}
+  button.disabled=true;
+  try{
+    const person=await api('reporting_requester_add',{module:'reporting_tracker',email,departmentId});
+    invalidatePages('settings:reporting_tracker');
+    if(activeModule==='reporting_tracker'&&search===requesterSearch){
+      configs.people=[...(configs.people||[]).filter(saved=>saved.id!==person.id),person];
+      selectRequester(person);
+      updateRequesterStatus(`${person.name} is saved and selected for this task.`);
+      $('raisedBy').focus();
+    }
+  }catch(error){if(search===requesterSearch)updateRequesterStatus(error.message);}
+  finally{button.disabled=false;}
+});
 $('department').addEventListener('change',()=>{
-  if(activeModule==='reporting_tracker'&&!$('department').value)$('raisedBy').value='';
-  updateReportingRequesters();
+  if(activeModule==='reporting_tracker'&&selectedRequester&&selectedRequester.department_id!==$('department').value)resetRequester();
 });
 function applyModuleConfig(){
   setSelect('department',configs.departments||[]);
@@ -274,8 +339,9 @@ function applyModuleConfig(){
   $('raisedByField').hidden=!reporting;
   $('raisedBy').required=reporting;
   $('departmentAutoHint').hidden=!reporting;
-  if(reporting)updateReportingRequesters();
-  else setSelect('raisedBy',[]);
+  $('departmentAutoHint').textContent=reporting?'Picking a saved requirement raiser fills in their department.':'';
+  if(!reporting||selectedRequester&&selectedRequester.department_id!==$('department').value)resetRequester();
+  else updateRequesterStatus();
 }
 function acceptBootstrap(b,fromSignIn=false){user=b.user;modules=b.modules||[];activeModule=b.activeModule||'ms_tracker';localStorage.setItem('worklogModule',activeModule);configs=b.config||{};sessions=b.sessions||[];offsetMs=Date.now()-new Date(b.serverNow).getTime();$('login').hidden=true;$('app').hidden=false;$('sideName').textContent=user.name;$('sideRole').textContent=(user.roles||[]).join(' · ')||'No role assigned';$('settingsTab').hidden=!canUseTracker();$('usersNav').hidden=false;$('trackerNav').hidden=!canUseTracker('ms_tracker');$('reportingNav').hidden=!canUseTracker('reporting_tracker');$('dailyNav').hidden=!canUseTracker('daily_activity');$('rosterNav').hidden=!canUseTracker('roster');$('userCreationTab').hidden=!isUserAdmin();$('userTreeTab').hidden=!isUserAdmin();$('profileTab').hidden=false;$('reportingTab').hidden=isUserAdmin();applyModuleConfig();renderRunners();$('workDate').value=localDate(b.serverNow);window.WorkLogOps?.onBootstrap(fromSignIn);if(canUseTracker(activeModule))showView('work',$('workTab'));else if(canUseTracker('daily_activity'))openDaily();else if(canUseTracker('roster'))openRoster();else openUsers();}
 async function init(){const {data:{session}}=await supabase.auth.getSession();if(!session)return;token=session.access_token;try{acceptBootstrap(await api('bootstrap'));}catch(e){$('login').hidden=false;showError(e);}}
@@ -316,12 +382,12 @@ function fillBuilderTimes(s){
   $('builderHint').textContent='Times came from the stopped runner. Choose “Enter times manually” to start a separate entry.';
 }
 function moveToBuilder(id){const s=sessions.find(x=>x.id===id);if(!s||s.state!=='stopped')return;$('sessionId').value=s.id;fillBuilderTimes(s);window.scrollTo({top:0,behavior:'smooth'});}
-function clearBuilder(){$('taskForm').reset();useManualBuilder();updateReportingRequesters();}
+function clearBuilder(){$('taskForm').reset();useManualBuilder();resetRequester();}
 $('taskForm').addEventListener('submit',async e=>{
   e.preventDefault();const button=$('saveButton'),sessionId=$('sessionId').value,module=activeModule;
-  const args={departmentId:$('department').value,raisedById:$('raisedBy').value,customerId:$('customer').value,taskId:$('task').value,remarks:$('remarks').value};
-  if(module==='reporting_tracker'&&!(configs.people||[]).some(person=>person.id===args.raisedById&&person.department_id===args.departmentId)){
-    toast('Choose a requirement raiser from the selected department.');return;
+  const args={departmentId:$('department').value,raisedById:selectedRequester?.id,customerId:$('customer').value,taskId:$('task').value,remarks:$('remarks').value};
+  if(module==='reporting_tracker'&&(!selectedRequester||selectedRequester.department_id!==args.departmentId)){
+    updateRequesterStatus('Select a saved requirement raiser or add their Talview email before saving.');$('raisedBy').focus();return;
   }
   if(!sessionId){
     const startValue=$('fromTime').value,stopValue=$('toTime').value,start=new Date(startValue),stop=new Date(stopValue);
@@ -386,13 +452,13 @@ const settingSearchIds={departments:'departmentSearch',customers:'customerSearch
 const settingCountIds={departments:'departmentCount',customers:'customerCount',tasks:'taskCount',people:'personCount'};
 function renderSettingList(type){
   const rows=settingsData[type]||[],query=$(settingSearchIds[type]).value.trim().toLocaleLowerCase();
-  const visible=query?rows.filter(x=>x.name.toLocaleLowerCase().includes(query)):rows;
+  const visible=query?rows.filter(x=>x.name.toLocaleLowerCase().includes(query)||x.email?.toLowerCase().includes(query)):rows;
   $(settingCountIds[type]).textContent=query?`${visible.length} of ${rows.length}`:`${rows.length} ${rows.length===1?(type==='people'?'person':type.slice(0,-1)):type}`;
   $(settingIds[type]).innerHTML=visible.length?visible.map(x=>{
     if(editingSetting?.type===type&&editingSetting.id===x.id)return `<div class="setting-item editing"><form class="setting-edit-form" onsubmit="saveSettingEdit(event,'${type}','${esc(x.id)}')"><input aria-label="Edit ${type==='people'?'person':type.slice(0,-1)} name" maxlength="120" required value="${esc(x.name)}">${type==='people'?`<select aria-label="Department for ${esc(x.name)}" required>${(settingsData.departments||[]).filter(d=>d.active||d.id===x.department_id).map(d=>`<option value="${esc(d.id)}" ${d.id===x.department_id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>`:''}<div><button type="submit">Save</button><button type="button" class="secondary" onclick="cancelSettingEdit()">Cancel</button></div></form></div>`;
     const actions=settingsPermissions.manage?`<div class="setting-actions"><button type="button" class="secondary" onclick="startSettingEdit('${type}','${esc(x.id)}')">Edit</button><button type="button" class="secondary" onclick="toggleSetting('${type}','${esc(x.id)}',${!x.active})">${x.active?'Deactivate':'Activate'}</button>${type==='tasks'?`<button type="button" class="delete-setting-button" onclick="deleteSettingTask('${esc(x.id)}')">Delete</button>`:''}</div>`:'';
     const department=type==='people'?(settingsData.departments||[]).find(d=>d.id===x.department_id)?.name:'';
-    return `<div class="setting-item ${x.active?'':'inactive'}"><button type="button" class="setting-name" title="${esc(x.name)}" aria-expanded="false" onclick="toggleSettingName(this)">${esc(x.name)}${department?`<small>${esc(department)}</small>`:''}</button>${actions}</div>`;
+    return `<div class="setting-item ${x.active?'':'inactive'}"><button type="button" class="setting-name" title="${esc([x.name,x.email,department].filter(Boolean).join(' · '))}" aria-expanded="false" onclick="toggleSettingName(this)">${esc(x.name)}${x.email?`<small>${esc(x.email)}</small>`:''}${department?`<small>${esc(department)}</small>`:''}</button>${actions}</div>`;
   }).join(''):`<div class="empty">${query?'No matching entries.':'No entries yet.'}</div>`;
 }
 function filterSettingList(type){renderSettingList(type);$(settingIds[type]).scrollTop=0;}
@@ -400,10 +466,10 @@ function toggleSettingName(button){const expanded=button.classList.toggle('expan
 function startSettingEdit(type,id){if(!settingsPermissions.manage)return;const previousType=editingSetting?.type;editingSetting={type,id};if(previousType&&previousType!==type)renderSettingList(previousType);renderSettingList(type);const input=$(settingIds[type]).querySelector('.setting-edit-form input');input?.focus();input?.select();}
 function cancelSettingEdit(){if(!editingSetting)return;const type=editingSetting.type;editingSetting=null;renderSettingList(type);}
 async function saveSettingEdit(event,type,id){event.preventDefault();if(!settingsPermissions.manage)return;const form=event.currentTarget,button=event.submitter||form.querySelector('button[type="submit"]');button.disabled=true;try{const row=await api('config_rename',{type,id,name:form.querySelector('input').value,departmentId:type==='people'?form.querySelector('select').value:null});invalidatePagePrefix('settings:');settingsData[type]=settingsData[type].map(x=>x.id===id?row:x);editingSetting=null;renderSettingList(type);applyActiveSettings();toast('Entry updated.');}catch(e){toast(e.message);button.disabled=false;}}
-function applyActiveSettings(){configs.departments=(settingsData.departments||[]).filter(x=>x.active);configs.customers=(settingsData.customers||[]).filter(x=>x.active);configs.tasks=(settingsData.tasks||[]).filter(x=>x.active);configs.people=(settingsData.people||[]).filter(x=>x.active&&configs.departments.some(d=>d.id===x.department_id));applyModuleConfig();setSelect('personDepartment',configs.departments);}
-function renderSettingsData(data){settingsPermissions=data.permissions;settingsData={departments:data.departments||[],customers:data.customers||[],tasks:data.tasks||[],people:data.people||[]};$('departmentForm').hidden=!settingsPermissions.manage;$('customerForm').hidden=!settingsPermissions.manage;$('peopleSettingsCard').hidden=activeModule!=='reporting_tracker';$('personForm').hidden=!settingsPermissions.manage;$('settings').classList.toggle('settings-limited',!settingsPermissions.manage);Object.keys(settingIds).forEach(renderSettingList);applyActiveSettings();}
-async function loadSettings(btn){showView('settings',btn||$('settingsTab'));editingSetting=null;await loadPage(`settings:${activeModule}`,60_000,'settings',()=>api('get_settings'),renderSettingsData,()=>{$('departmentForm').hidden=true;$('customerForm').hidden=true;$('personForm').hidden=true;Object.values(settingIds).forEach(id=>$(id).textContent='Loading…');},e=>{Object.values(settingIds).forEach(id=>$(id).textContent=e.message);});}
-async function saveSetting(event,type){event.preventDefault();const inputs={departments:'departmentName',customers:'customerName',tasks:'taskName',people:'personName'},input=$(inputs[type]),button=event.submitter;if(!input)return;button.disabled=true;try{await api('config_add',{type,name:input.value.trim(),departmentId:type==='people'?$('personDepartment').value:null});invalidatePagePrefix('settings:');input.value='';$(settingSearchIds[type]).value='';toast('Added to '+type+'.');await loadSettings($('settingsTab'));}catch(e){toast(e.message);}finally{button.disabled=false;}}
+function applyActiveSettings(){configs.departments=(settingsData.departments||[]).filter(x=>x.active);configs.customers=(settingsData.customers||[]).filter(x=>x.active);configs.tasks=(settingsData.tasks||[]).filter(x=>x.active);applyModuleConfig();}
+function renderSettingsData(data){settingsPermissions=data.permissions;settingsData={departments:data.departments||[],customers:data.customers||[],tasks:data.tasks||[],people:data.people||[]};$('departmentForm').hidden=!settingsPermissions.manage;$('customerForm').hidden=!settingsPermissions.manage;$('peopleSettingsCard').hidden=activeModule!=='reporting_tracker';$('settings').classList.toggle('settings-limited',!settingsPermissions.manage);Object.keys(settingIds).forEach(renderSettingList);applyActiveSettings();}
+async function loadSettings(btn){showView('settings',btn||$('settingsTab'));editingSetting=null;await loadPage(`settings:${activeModule}`,60_000,'settings',()=>api('get_settings'),renderSettingsData,()=>{$('departmentForm').hidden=true;$('customerForm').hidden=true;Object.values(settingIds).forEach(id=>$(id).textContent='Loading…');},e=>{Object.values(settingIds).forEach(id=>$(id).textContent=e.message);});}
+async function saveSetting(event,type){event.preventDefault();const inputs={departments:'departmentName',customers:'customerName',tasks:'taskName'},input=$(inputs[type]),button=event.submitter;if(!input)return;button.disabled=true;try{await api('config_add',{type,name:input.value.trim()});invalidatePagePrefix('settings:');input.value='';$(settingSearchIds[type]).value='';toast('Added to '+type+'.');await loadSettings($('settingsTab'));}catch(e){toast(e.message);}finally{button.disabled=false;}}
 async function toggleSetting(type,id,active){try{await api('config_toggle',{type,id,active});invalidatePagePrefix('settings:');await loadSettings($('settingsTab'));}catch(e){toast(e.message);}}
 async function deleteSettingTask(id){const item=(settingsData.tasks||[]).find(x=>x.id===id);if(!item)return;if(!confirm(`Delete task “${item.name}”? It will be removed from the dropdown. Past logged work will keep its task name. This cannot be undone.`))return;try{await api('config_delete_task',{id});invalidatePagePrefix('settings:');await loadSettings($('settingsTab'));toast('Task deleted.');}catch(e){toast(e.message);}}
 async function changePassword(event){
@@ -764,7 +830,7 @@ async function copyCreatedPassword(){try{await navigator.clipboard.writeText($('
 function refreshClocks(){if(document.hidden)return;const byId=new Map(sessions.map(s=>[s.id,s]));for(const el of document.querySelectorAll('[data-clock]')){const s=byId.get(el.dataset.clock);if(s)el.textContent=duration(elapsed(s));}}
 document.addEventListener('visibilitychange',refreshClocks);
 setInterval(refreshClocks,1000);
-Object.assign(window,{openCreateUser,closeUserDrawer,filterUsers,changeUserPage,syncRaisedByDepartment,signOut,addRunner,renameRunner,timerAction,discardRunner,updateManualDuration,useManualBuilder,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadDataEntries,changeEntriesPage,applyEntriesFilter,clearEntriesFilter,downloadDataEntries,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,filterSettingList,toggleSettingName,startSettingEdit,cancelSettingEdit,saveSettingEdit,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,togglePeoplePalette,editUser,closeUserEditor,saveUser,toggleUserActive,deleteUser,arrangeTree,setBoardLayoutMode,adjustBoardZoom,fitBoard,toggleBoardCollapse,detachBoardUser,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
+Object.assign(window,{openCreateUser,closeUserDrawer,filterUsers,changeUserPage,signOut,addRunner,renameRunner,timerAction,discardRunner,updateManualDuration,useManualBuilder,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadDataEntries,changeEntriesPage,applyEntriesFilter,clearEntriesFilter,downloadDataEntries,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,filterSettingList,toggleSettingName,startSettingEdit,cancelSettingEdit,saveSettingEdit,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,togglePeoplePalette,editUser,closeUserEditor,saveUser,toggleUserActive,deleteUser,arrangeTree,setBoardLayoutMode,adjustBoardZoom,fitBoard,toggleBoardCollapse,detachBoardUser,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
 setupOperations({supabase,getUser:()=>user,getModules:()=>modules,toast,closeUserDrawer});
 generatePassword();
 supabase.auth.onAuthStateChange((_event,session)=>{token=session?.access_token||'';if(!session){closeUserDrawer();clearPageCache();user=null;$('app').hidden=true;$('login').hidden=false;}});

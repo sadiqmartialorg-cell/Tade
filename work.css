@@ -65,3 +65,25 @@
 .entries-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; color: var(--muted); font-size: 12px; }
 .entries-pagination > div { display: flex; gap: 7px; }
 .entries-pagination button { padding: 7px 11px; font-size: 12px; }
+.requester-suggestions {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.requester-suggestions button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 0;
+  background: #fff;
+  text-align: left;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.requester-suggestions button + button { border-top: 1px solid var(--line); }
+.requester-suggestions button:hover, .requester-suggestions button:focus-visible { background: #e8f1fd; }
+.requester-suggestions small { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; }
+.requester-status { margin: 5px 0; }
