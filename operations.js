@@ -451,12 +451,32 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
   async function openRoster(){if(!allowed('roster'))return;activate('rosterView');if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());try{await ensureBasics();await loadRoster()}catch(e){$('rosterError').textContent=e.message}}
   function rosterKey(){return roster?.teamId+'|'+$('rosterWeek').value}
   function rosterIsEditing(){return roster?.canManage&&(Boolean(roster.week.draft_revision)||editRosterKey===rosterKey())}
+  function rosterTeamLabel(team){return basics?.tier===1&&team?.canManage?'Direct reports':team?.name||'Team'}
+  function rosterWeekText(week){
+    const end=addDays(week,6);
+    const first=week.slice(0,7)===end.slice(0,7)?Number(week.slice(8)):rosterDate(week)+(week.slice(0,4)!==end.slice(0,4)?` ${week.slice(0,4)}`:'');
+    return `${first}–${rosterDate(end)} ${end.slice(0,4)}`;
+  }
+  $('rosterWeek').addEventListener('click',event=>{
+    try{event.currentTarget.showPicker?.()}catch{/* The native date input still supports keyboard entry. */}
+  });
+  const rosterMore=$('rosterMore');
+  rosterMore.addEventListener('click',event=>{
+    if(!event.target.closest('.roster-more-items button,.roster-more-items a'))return;
+    rosterMore.open=false;
+    rosterMore.querySelector('summary').focus();
+  },true);
+  rosterMore.addEventListener('keydown',event=>{
+    if(event.key!=='Escape'||!rosterMore.open)return;
+    event.preventDefault();rosterMore.open=false;rosterMore.querySelector('summary').focus();
+  });
+  document.addEventListener('pointerdown',event=>{if(rosterMore.open&&!rosterMore.contains(event.target))rosterMore.open=false;});
   function updateRosterButtons(){
     $('editRosterButton').hidden=!roster?.canManage||rosterIsEditing();
     $('copyRosterButton').hidden=!rosterIsEditing();
     $('publishRosterButton').hidden=!rosterIsEditing();
     $('publishRosterButton').disabled=!roster?.week.draft_revision;
-    $('rosterHistoryWrap').hidden=!roster?.canManage;
+    $('rosterHistoryButton').hidden=!roster?.canManage;
   }
   function beginRosterEdit(){
     if(!roster?.canManage)return;
@@ -479,28 +499,36 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     ++coverageRequest;
     rosterCoverage=null;
     const week=monday($('rosterWeek').value||today()),teamId=$('rosterTeam').value||roster?.teamId||null;
-    $('rosterWeek').value=week;$('rosterGrid').textContent='Loading roster…';$('rosterCoverage').textContent='Loading coverage…';
-    $('rosterCheckSummary').hidden=true;$('rosterError').textContent='';
-    for(const id of ['editRosterButton','copyRosterButton','publishRosterButton'])$(id).hidden=true;
+    roster=null;
+    const range=rosterWeekText(week);
+    $('rosterWeek').value=week;$('rosterWeek').setAttribute('aria-label',`Choose roster week. ${range}`);
+    $('rosterWeekLabel').textContent=range;$('rosterThisWeekButton').hidden=week===monday(today());
+    $('rosterGrid').innerHTML='<p class="empty" role="status">Loading roster…</p>';$('rosterCoverage').textContent='Loading coverage…';
+    $('rosterGapCount').hidden=true;$('rosterError').textContent='';
+    $('rosterShiftLegend').replaceChildren();$('rosterFooter').hidden=true;
+    $('rosterState').textContent='Loading…';$('rosterState').classList.remove('published','draft');
+    for(const id of ['editRosterButton','copyRosterButton','publishRosterButton','rosterHistoryButton'])$(id).hidden=true;
     try{
       const data=await call('roster_week',{week,teamId});
       if(request!==rosterRequest)return;
       roster=data;
       const teamSelect=$('rosterTeam');
-      teamSelect.innerHTML=roster.teams.map(team=>`<option value="${esc(team.id)}">${esc(team.name)}</option>`).join('');
+      teamSelect.innerHTML=roster.teams.map(team=>`<option value="${esc(team.id)}">${esc(rosterTeamLabel(team))}</option>`).join('');
       teamSelect.value=roster.teamId;$('rosterTeamWrap').hidden=roster.teams.length<=1;
       updateRosterButtons();
-      $('rosterPlannerTabs').hidden=!roster.canManage;
+      $('rosterPlannerTabs').hidden=!canManage();
+      $('rosterCoverageTab').hidden=!roster.canManage;
+      $('rosterShiftsTab').textContent=basics?.tier===1&&roster.canManage?'Direct reports':'Shifts';
       $('rosterReaderTabs').hidden=canManage();
       showRosterPlanner(showCoverage,false);
       showPersonalRoster(personalRoster);
       if(roster.canManage)await previewRoster();
-      if(request===rosterRequest&&roster.canManage&&$('rosterHistoryWrap').open)await loadRosterHistory();
-    }catch(error){if(request===rosterRequest){$('rosterGrid').textContent=error.message;$('rosterError').textContent=error.message}}
+    }catch(error){if(request===rosterRequest){$('rosterState').textContent='Roster unavailable';$('rosterGrid').replaceChildren();$('rosterCoverage').textContent='';$('rosterError').textContent=error.message}}
   }
   function showRosterPlanner(coverage,load=true){
     showCoverage=Boolean(coverage&&roster?.canManage);
     $('rosterSheet').hidden=showCoverage;$('rosterCoverage').hidden=!showCoverage;
+    renderRosterGapCount();
     for(const [id,active] of [['rosterShiftsTab',!showCoverage],['rosterCoverageTab',showCoverage]]){
       $(id).classList.toggle('active',active);
       if(active)$(id).setAttribute('aria-current','page');else $(id).removeAttribute('aria-current');
@@ -511,36 +539,55 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
   function rosterStepWeek(direction){$('rosterWeek').value=addDays(monday($('rosterWeek').value||today()),direction*7);loadRoster()}
   function renderRoster(){
     if(!roster)return;
-    const week=$('rosterWeek').value,end=addDays(week,6),editing=rosterIsEditing();
+    const week=$('rosterWeek').value,editing=rosterIsEditing();
     const mine=!canManage()&&personalRoster;
     const people=roster.people.filter(person=>!mine||person.id===getUser()?.id)
       .sort((left,right)=>left.display_name.localeCompare(right.display_name));
-    $('rosterWeekLabel').textContent=`${rosterDate(week)}–${rosterDate(end)} ${end.slice(0,4)}`;
     const version=Number(roster.week.active_version||0),revision=Number(roster.week.draft_revision||0);
-    $('rosterState').textContent=revision?'Draft · published roster still active':version?`Published v${version}`:'Unpublished';
-    $('rosterState').classList.toggle('published',version>0&&!revision);
-    $('rosterSheetTitle').textContent=mine?'My shifts':'Team shifts';
-    $('rosterSheetHelp').textContent=editing?'Select a shift to edit the draft.':'Published shifts';
+    $('rosterState').textContent=editing?'Draft':version?`Published v${version}`:'Unpublished';
+    $('rosterState').classList.toggle('published',version>0&&!editing);
+    $('rosterState').classList.toggle('draft',Boolean(editing));
+    const grid=$('rosterGrid'),footer=$('rosterFooter');
+    const hasEntries=roster.publishedRows.some(row=>people.some(person=>person.id===row.user_id))||
+      (roster.extraDays||[]).some(row=>people.some(person=>person.id===row.requester_id));
+    if(!people.length||!editing&&!hasEntries){
+      grid.innerHTML=`<div class="roster-empty"><h3>${people.length?'No shifts scheduled':mine?'No personal roster':'No team members'}</h3><p class="hint">${people.length?'No shifts have been published for this week.':mine?'Your shift is not listed in this roster.':'There are no active members in this roster team.'}</p></div>`;
+      $('rosterShiftLegend').replaceChildren();footer.hidden=true;
+      return;
+    }
     $('rosterShiftLegend').innerHTML=shiftLegend();
+    footer.hidden=false;
     const dates=Array.from({length:7},(_,index)=>addDays(week,index));
     const extraDays=new Set((roster.extraDays||[]).map(row=>row.requester_id+'|'+row.work_date));
-    const head=dates.map(date=>`<th scope="col" class="${date===today()?'ops-roster-today':''}">${esc(new Date(date+'T00:00:00Z').toLocaleDateString('en-IN',{weekday:'short',timeZone:'UTC'}))}<span class="ops-roster-day">${esc(rosterDate(date))}</span></th>`).join('');
-    const body=people.map(person=>{
-      const editable=editing&&roster.editable.includes(person.id);
-      const cells=dates.map(date=>{
-        const cell=rosterCell(person.id,date,!editing);
-        const tone=classifyShift(cell?.kind,cell?.start,cell?.end),label=!cell&&editable?'Add shift':shiftLabel(cell,date);
-        const chip=`class="ops-roster-shift shift-tone shift-${tone.key}" title="${esc(tone.label)}" aria-label="${esc(person.display_name)}, ${date}, ${esc(tone.label+' · '+label)}"`;
-        const extra=extraDays.has(person.id+'|'+date)?'<span class="roster-extra-badge" title="Approved extra working day">Extra working day</span>':'';
-        return `<td class="${date===today()?'ops-roster-today':''}">${editable?`<button type="button" ${chip} onclick="openRosterEditor('${person.id}','${date}')">${esc(label)}</button>`:`<span ${chip}>${esc(label)}</span>`}${extra}</td>`;
+    const todayDate=today();
+    const dayHeading=date=>`<time datetime="${date}" ${date===todayDate?'aria-current="date"':''}><strong>${esc(new Date(date+'T00:00:00Z').toLocaleDateString('en-IN',{weekday:'short',timeZone:'UTC'}))}</strong><span class="ops-roster-day">${esc(rosterDate(date))}</span></time>`;
+    function shift(person,date,editable=false){
+      const cell=rosterCell(person.id,date,!editing);
+      const tone=classifyShift(cell?.kind,cell?.start,cell?.end);
+      const overnight=tone.key!=='empty'&&cell.kind==='work'&&shortTime(cell.end)<shortTime(cell.start);
+      const hours=cell?.kind==='work'&&tone.key!=='empty'?`${rosterClock(cell.start)}–${rosterClock(cell.end)}`:'';
+      const label=hours||(tone.key==='empty'?(editable?'Add shift':'—'):shiftLabel(cell,date));
+      const description=tone.key==='empty'?'Unscheduled':hours?`${tone.label}, ${hours}${overnight?', Ends next day':''}`:tone.label;
+      const chip=`class="ops-roster-shift shift-tone shift-${tone.key}" title="${esc(description)}"`;
+      const marker=overnight?'<small class="roster-overnight" aria-hidden="true">+1</small>':'';
+      const extra=extraDays.has(person.id+'|'+date)?'<span class="roster-extra-badge" title="Approved extra working day">Extra working day</span>':'';
+      const readOnly=`<span ${chip}><span aria-hidden="true">${esc(label)}</span>${marker}<span class="sr-only">${esc(description)}</span></span>`;
+      return (editable?`<button type="button" ${chip} aria-label="${esc(`${person.display_name}, ${date}, ${description}${cell?'':' · Add shift'}`)}" onclick="openRosterEditor('${person.id}','${date}')">${esc(label)}${marker}</button>`:readOnly)+extra;
+    }
+    if(mine){
+      grid.innerHTML=`<ul class="roster-personal-week" aria-label="My shifts">${dates.map(date=>`<li class="${date===todayDate?'ops-roster-today':''}">${dayHeading(date)}${shift(people[0],date)}</li>`).join('')}</ul>`;
+    }else{
+      const head=dates.map(date=>`<th scope="col" class="${date===todayDate?'ops-roster-today':''}">${dayHeading(date)}</th>`).join('');
+      const body=people.map(person=>{
+        const editable=editing&&roster.editable.includes(person.id);
+        const cells=dates.map(date=>`<td class="${date===todayDate?'ops-roster-today':''}">${shift(person,date,editable)}</td>`).join('');
+        return `<tr class="${person.id===getUser()?.id?'ops-roster-self':''}"><th scope="row">${esc(person.display_name)}<small>${esc(person.job_role||'')}</small></th>${cells}</tr>`;
       }).join('');
-      return `<tr class="${person.id===getUser()?.id?'ops-roster-self':''}"><th scope="row">${esc(person.display_name)}<small>${esc(person.job_role||'')}</small></th>${cells}</tr>`;
-    }).join('');
-    $('rosterGrid').innerHTML=people.length?`<table class="ops-roster-table"><thead><tr><th scope="col">Team member</th>${head}</tr></thead><tbody>${body}</tbody></table>`:
-      `<p class="empty">${mine?'Your shift is not listed for this week.':'No team members in this roster team.'}</p>`;
+      grid.innerHTML=`<table class="ops-roster-table"><thead><tr><th scope="col">Team member</th>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    }
     const shiftCount=people.reduce((count,person)=>count+dates.filter(date=>rosterCell(person.id,date,!editing)?.kind==='work').length,0);
     const changeCount=rosterChanges().length;
-    $('rosterFooter').innerHTML=`<span>${shiftCount} working shift${shiftCount===1?'':'s'}</span><span>${revision?`${changeCount} pending change${changeCount===1?'':'s'}`:version?`Published ${esc(when(roster.week.published_at))}`:''}</span>`;
+    footer.innerHTML=`<span>${shiftCount} working shift${shiftCount===1?'':'s'}</span><span>${editing?(revision?`${changeCount} pending change${changeCount===1?'':'s'}${version?' · Published roster active':''}`:version?'Published roster active':'Unpublished draft'):version?`Published ${esc(when(roster.week.published_at))}`:''}</span>`;
   }
   function openRosterEditor(userId,date){if(!rosterIsEditing()||!roster.editable.includes(userId))return;const person=roster.people.find(p=>p.id===userId);if(!person)return toast('This person is outside the selected team');
     rosterEditing={userId,date};const cell=rosterCell(userId,date),start=shortTime(cell?.start)||'08:00',end=shortTime(cell?.end)||'18:00';let preset=cell?.kind==='off'?'off':cell?.kind==='leave'?'leave':Object.keys(rosterPresets).find(key=>rosterPresets[key][0]===start&&rosterPresets[key][1]===end)||'custom';if(!cell)preset='day';
@@ -599,23 +646,18 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
       const minute=local.getUTCHours()*60+local.getUTCMinutes();
       return `<button type="button" class="staffing-marker ${marker.reason?'gap':'covered'}" style="--left:${minute/14.4}%;--offset:${index%3}" onclick="showCoverageCheck('${marker.id}')" aria-label="${esc(coverageClock(minute)+' IST · '+marker.check)}" title="${esc(coverageClock(minute)+' IST · '+marker.check)}">●</button>`;
     }).join('')}</div></div>`:'';
-    return `<section class="ops-roster-coverage"><div class="ops-roster-coverage-head"><div><h3>Staffing coverage</h3><span>${rosterProjectionLabel()} · IST</span></div><div class="ops-coverage-switch" role="group" aria-label="Coverage period"><button type="button" class="secondary" aria-pressed="${!coverageDay}" onclick="selectCoverageDay('')">Weekly</button><button type="button" class="secondary" aria-pressed="${Boolean(coverageDay)}" onclick="openDailyCoverage()">Daily</button>${coverageDay?`<label>Day <select onchange="selectCoverageDay(this.value)">${dayOptions}</select></label>`:''}</div></div>
+    return `<section class="ops-roster-coverage"><div class="ops-roster-coverage-head"><h3>Staffing headcount</h3><div class="ops-coverage-switch" role="group" aria-label="Coverage period"><button type="button" class="secondary" aria-pressed="${!coverageDay}" onclick="selectCoverageDay('')">Weekly</button><button type="button" class="secondary" aria-pressed="${Boolean(coverageDay)}" onclick="openDailyCoverage()">Daily</button>${coverageDay?`<label>Day <select onchange="selectCoverageDay(this.value)">${dayOptions}</select></label>`:''}</div></div>
       <div class="staffing-legend"><span class="covered">Covered</span><span class="partial">Partly covered</span><span class="gap">Uncovered</span><span class="overlap">Overlapping shifts</span><span>Number = peak people on shift</span></div>
       <div class="staffing-scroll" tabindex="0" role="region" aria-label="Hourly staffing coverage"><div class="staffing-row staffing-axis" aria-hidden="true"><span>Hour</span>${axis}</div>${rows}${plot}</div>
       <div id="staffingHour" class="staffing-detail" aria-live="polite">Select an hour or check for details.</div></section>`;
   }
   function rosterProjectionLabel(){
-    return roster?.week.draft_revision?'Draft preview':'Published projection';
+    return rosterIsEditing()?'Draft coverage':'Published coverage';
   }
   function openDailyCoverage(){
     const days=rosterCoverage?.staffing||[];
     const first=days.find(day=>day.date===today())||days[0];
     if(first)selectCoverageDay(first.date);
-  }
-  function inspectRosterCheck(id,date){
-    showRosterPlanner(true,false);
-    selectCoverageDay(date);
-    showCoverageCheck(id);
   }
   function openRecordedGap(date){
     if(!allowed('daily_activity'))return;
@@ -624,16 +666,11 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     setActivityKind('check');
     openDaily('team');
   }
-  function renderRosterCheckSummary(){
-    const summary=$('rosterCheckSummary'),data=rosterCoverage;
-    summary.hidden=!data;
-    if(!data)return;
-    const gaps=data.gaps||[],recorded=(data.recordedGaps||[])[0];
-    const title=gaps.length?`${gaps.length} uncovered check${gaps.length===1?'':'s'}`:data.checks?`${data.checks} scheduled check${data.checks===1?'':'s'}`:'No recurring checks scheduled';
-    summary.classList.toggle('ops-inline-alert',gaps.length>0);
-    summary.innerHTML=`<strong>${title}</strong> · ${rosterProjectionLabel()}
-      ${gaps.length?`<div class="ops-summary-links">${gaps.slice(0,4).map(gap=>`<button type="button" class="ops-link-button" onclick="inspectRosterCheck('${gap.id}','${gap.date}')">${esc(quickDateTime(gap.time))} · ${esc(gap.check)}</button>`).join('')}${gaps.length>4?'<button type="button" class="ops-link-button" onclick="showRosterPlanner(true)">See all coverage gaps</button>':''}</div>`:''}
-      ${recorded&&allowed('daily_activity')?`<button type="button" class="ops-link-button ops-recorded-gap" onclick="openRecordedGap('${recorded.date}')">View recorded coverage gaps · ${esc(rosterDate(recorded.date))}</button>`:''}`;
+  function renderRosterGapCount(){
+    const count=rosterCoverage?.gaps?.length||0;
+    const button=$('rosterGapCount');
+    button.hidden=showCoverage||!count;
+    button.textContent=`${count} coverage gap${count===1?'':'s'}`;
   }
   function selectCoverageDay(date){coverageDay=date||null;renderCoverage()}
   function showCoverageCheck(id){
@@ -673,13 +710,21 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     const markers=(data.markers||[]).filter(check=>!coverageDay||check.date===coverageDay);
     const gaps=data.gaps.filter(check=>!coverageDay||check.date===coverageDay);
     const early=data.early.filter(check=>!coverageDay||check.date===coverageDay);
-    const status=!markers.length?'<p class="hint">No recurring checks scheduled for this selection.</p>'
-      :markers.every(check=>!check.reason)?'<p class="ops-roster-ok">All scheduled checks are covered.</p>':'';
-    const checkList=markers.map(check=>`<li><button type="button" class="ops-link-button" onclick="showCoverageCheck('${check.id}')">${esc(quickDateTime(check.time))} · ${esc(check.check)}</button> · ${esc(check.assignee||'Coverage gap')}</li>`).join('');
-    $('rosterCoverage').innerHTML=`${staffingPlanner(data.staffing,data.markers)}<section class="ops-roster-coverage"><div class="ops-roster-coverage-head"><h3>Activity coverage</h3><span>${markers.length} scheduled checks · ${changes.length} draft changes</span></div>
+    const recorded=(data.recordedGaps||[]).filter(check=>!coverageDay||check.date===coverageDay);
+    const missed=markers.filter(check=>check.status==='missed');
+    const gapIds=new Set(gaps.map(check=>check.id)),recordedIds=new Set(recorded.map(check=>check.id));
+    const checkList=markers.map(check=>{
+      const outcome=gapIds.has(check.id)?'Uncovered':recordedIds.has(check.id)?'Recorded gap':check.status==='missed'?'Missed occurrence':check.assignee||'No eligible shift in this view';
+      return `<li><button type="button" class="ops-link-button" onclick="showCoverageCheck('${check.id}')">${esc(quickDateTime(check.time))} · ${esc(check.check)}</button> · ${esc(outcome)}</li>`;
+    }).join('');
+    const team=rosterTeamLabel(roster.teams.find(team=>team.id===roster.teamId));
+    const recordedDates=[...new Set(recorded.map(check=>check.date))].sort();
+    $('rosterCoverage').innerHTML=`<section class="ops-roster-coverage roster-check-coverage"><div class="ops-roster-coverage-head"><div><h3>${rosterProjectionLabel()}</h3><span>${esc(team)} · ${esc(rosterWeekText($('rosterWeek').value))}</span></div>${rosterIsEditing()?`<span>${changes.length} draft change${changes.length===1?'':'s'}</span>`:''}</div>
+        <p class="hint">${markers.length?`${markers.length} scheduled check${markers.length===1?'':'s'}`:'No scheduled checks'}</p>
         ${gaps.map(gap=>warning(gap,'ops-roster-alert',`${gap.reason}. ${gap.suggestion||'Add or extend a shift for a team member with Daily Activity access.'}`)).join('')}
-        ${early.map(check=>warning(check,'ops-roster-early',`${check.reason} at ${when(check.deadline)} IST`)).join('')}${status}
-        ${markers.length?`<details ${coverageDay?'open':''}><summary>Scheduled checks</summary><ul class="ops-coverage-check-list">${checkList}</ul></details>`:''}</section>`;
+        ${early.map(check=>warning(check,'ops-roster-early',`${check.reason} at ${when(check.deadline)} IST`)).join('')}
+        ${recorded.length||missed.length?`<div class="roster-recorded-gaps"><strong>Historical occurrences</strong><p class="hint">${[missed.length?`${missed.length} marked missed`:'',recorded.length?`${recorded.length} recorded coverage gap${recorded.length===1?'':'s'}`:''].filter(Boolean).join(' · ')}</p>${allowed('daily_activity')?recordedDates.map(date=>`<button type="button" class="ops-link-button" onclick="openRecordedGap('${date}')">View recorded gaps · ${esc(rosterDate(date))}</button>`).join(''):''}</div>`:''}
+        ${markers.length?`<details ${coverageDay?'open':''}><summary>Scheduled checks</summary><ul class="ops-coverage-check-list">${checkList}</ul></details>`:''}</section>${staffingPlanner(data.staffing,data.markers)}`;
   }
   async function previewRoster(){
     if(!roster?.canManage)return null;
@@ -687,7 +732,7 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
     try{
       const data=await call('roster_preview',{teamId:roster.teamId,week:$('rosterWeek').value});
       if(request!==coverageRequest)return null;
-      rosterCoverage=data;renderRosterCheckSummary();renderCoverage();return data;
+      rosterCoverage=data;renderRosterGapCount();if(showCoverage)renderCoverage();return data;
     }catch(error){if(request===coverageRequest){$('rosterCoverage').textContent='';$('rosterError').textContent=error.message}return null}
   }
   async function publishRoster(){
@@ -709,7 +754,16 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
         await loadRoster();
       },{label:'Publish',refreshActivity:false});
   }
-  async function loadRosterHistory(){if(!roster?.canManage)return;$('rosterHistory').textContent='Loading history…';try{const rows=await call('roster_history',{teamId:roster.teamId,week:$('rosterWeek').value});$('rosterHistory').innerHTML=rows.length?rows.map(pub=>`<article class="ops-roster-history-item"><strong>Version ${pub.version}</strong> · ${esc(when(pub.published_at))} · ${esc(names.get(pub.published_by)||'Former publisher')}<p>${pub.changes.length} shift change${pub.changes.length===1?'':'s'}</p>${pub.changes.slice(0,12).map(c=>`<div>${esc(names.get(c.user_id)||'Team member')} · ${esc(rosterDate(c.work_date))}: ${esc(shiftLabel({kind:c.previous_kind,start:c.previous_start,end:c.previous_end},c.work_date))} → ${esc(shiftLabel({kind:c.kind,start:c.start_time,end:c.end_time},c.work_date))}</div>`).join('')}${pub.changes.length>12?`<small>and ${pub.changes.length-12} more changes</small>`:''}</article>`).join(''):'No published versions yet.'}catch(e){$('rosterHistory').textContent=e.message}}
+  async function loadRosterHistory(){
+    if(!roster?.canManage)return;
+    const content=$('rosterHistory'),week=$('rosterWeek').value,teamId=roster.teamId;
+    $('rosterHistoryScope').textContent=`${rosterTeamLabel(roster.teams.find(team=>team.id===teamId))} · ${rosterWeekText(week)}`;
+    content.textContent='Loading history…';$('rosterHistoryWrap').showModal();
+    try{
+      const rows=await call('roster_history',{teamId,week});
+      content.innerHTML=rows.length?rows.map(pub=>`<article class="ops-roster-history-item"><strong>Version ${pub.version}</strong> · ${esc(when(pub.published_at))} · ${esc(names.get(pub.published_by)||'Former publisher')}<p>${pub.changes.length} shift change${pub.changes.length===1?'':'s'}</p>${pub.changes.slice(0,12).map(c=>`<div>${esc(names.get(c.user_id)||'Team member')} · ${esc(rosterDate(c.work_date))}: ${esc(shiftLabel({kind:c.previous_kind,start:c.previous_start,end:c.previous_end},c.work_date))} → ${esc(shiftLabel({kind:c.kind,start:c.start_time,end:c.end_time},c.work_date))}</div>`).join('')}${pub.changes.length>12?`<small>and ${pub.changes.length-12} more changes</small>`:''}</article>`).join(''):'No published versions yet.';
+    }catch(error){content.textContent=error.message;}
+  }
   async function openInbox(){activate('inboxView');await refreshInbox()}
   async function refreshInbox(){if(!getUser())return;try{inbox=await call('inbox');lastInboxCheck=Date.now();const unread=inbox.filter(x=>!x.read_at).length;$('inboxCount').textContent=unread||'';$('inboxButton').setAttribute('aria-label',unread?`Inbox, ${unread} unread messages`:'Inbox');$('inboxList').innerHTML=inbox.length?inbox.map(m=>`<article class="panel ops-inbox-item ${m.read_at?'':'unread'}"><div><strong>${esc(m.title)}</strong><p>${esc(m.body)}</p><small>${esc(when(m.created_at))}</small></div><button type="button" class="secondary" onclick="openInboxMessage('${m.id}')">${m.read_at?'Open':'Mark read & open'}</button></article>`).join(''):'<div class="panel empty">Your inbox is empty.</div>'}catch(e){$('inboxList').textContent=e.message}}
   const {openExtraDays}=setupRosterReports({call,getUser,today,addDays,rosterDate,shiftLabel,when,esc,csvCell,
@@ -823,6 +877,6 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
       else openDaily('mine');
     }
   });
-  const api={onBootstrap(fromSignIn=false){if(getUser()){if(!$('opsDate').value)$('opsDate').value=today();if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());refreshInbox();if(allowed('daily_activity'))loadShiftHandover().then(report=>{if(report.shift&&(fromSignIn||report.incoming.length||report.completed.length))showShiftHandover(report)}).catch(error=>toast('Unable to load shift handover: '+error.message));if(location.hash==='#roster_extra')queueMicrotask(openExtraDays);else if(location.hash==='#roster'&&allowed('roster'))queueMicrotask(openRoster);else if(location.hash==='#daily_activity'&&allowed('daily_activity'))queueMicrotask(()=>openDaily('mine'))}},openDaily,openRoster,openInbox,openShiftHandover,viewHandoverActivity,refreshDaily,renderDaily,filterDaily,activityDateChanged,setActivityToday,openActivityFilters,applyActivityFilters,clearActivityFilters,filterActivityStatus,sortActivities,setActivityKind,stepActivityPage,openActivityDetails,openQuickAdd,closeQuickAdd,toggleQuickMode,toggleQuickType,renderQuickOwners,updateQuickDue,toggleQuickFrequency,updateQuickRepeatSummary,addQuickCheck,submitQuickAdd,completeActivity,requestActivityExtension,decideActivityExtension,adoptSeries,endActivitySeries,previewSeries,loadRoster,renderRoster,rosterThisWeek,rosterStepWeek,openRosterEditor,toggleRosterPreset,updateRosterEndDay,saveRosterEditor,copyRoster,reviewRosterGap,previewRoster,publishRoster,beginRosterEdit,showPersonalRoster,showRosterPlanner,showStaffingHour,selectCoverageDay,openDailyCoverage,inspectRosterCheck,openRecordedGap,showCoverageCheck,loadRosterHistory,refreshInbox,openInboxMessage,openNotificationSettings,toggleWorklogPush,sendWorklogPushTest};
+  const api={onBootstrap(fromSignIn=false){if(getUser()){if(!$('opsDate').value)$('opsDate').value=today();if(!$('rosterWeek').value)$('rosterWeek').value=monday(today());refreshInbox();if(allowed('daily_activity'))loadShiftHandover().then(report=>{if(report.shift&&(fromSignIn||report.incoming.length||report.completed.length))showShiftHandover(report)}).catch(error=>toast('Unable to load shift handover: '+error.message));if(location.hash==='#roster_extra')queueMicrotask(openExtraDays);else if(location.hash==='#roster'&&allowed('roster'))queueMicrotask(openRoster);else if(location.hash==='#daily_activity'&&allowed('daily_activity'))queueMicrotask(()=>openDaily('mine'))}},openDaily,openRoster,openInbox,openShiftHandover,viewHandoverActivity,refreshDaily,renderDaily,filterDaily,activityDateChanged,setActivityToday,openActivityFilters,applyActivityFilters,clearActivityFilters,filterActivityStatus,sortActivities,setActivityKind,stepActivityPage,openActivityDetails,openQuickAdd,closeQuickAdd,toggleQuickMode,toggleQuickType,renderQuickOwners,updateQuickDue,toggleQuickFrequency,updateQuickRepeatSummary,addQuickCheck,submitQuickAdd,completeActivity,requestActivityExtension,decideActivityExtension,adoptSeries,endActivitySeries,previewSeries,loadRoster,renderRoster,rosterThisWeek,rosterStepWeek,openRosterEditor,toggleRosterPreset,updateRosterEndDay,saveRosterEditor,copyRoster,reviewRosterGap,previewRoster,publishRoster,beginRosterEdit,showPersonalRoster,showRosterPlanner,showStaffingHour,selectCoverageDay,openDailyCoverage,openRecordedGap,showCoverageCheck,loadRosterHistory,refreshInbox,openInboxMessage,openNotificationSettings,toggleWorklogPush,sendWorklogPushTest};
   Object.assign(window,api);window.WorkLogOps=api;return api;
 }

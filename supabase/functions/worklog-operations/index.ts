@@ -299,7 +299,7 @@ async function rosterPreview(ctx:Context,week:string,teamId:string,includeStaffi
     const noActivityAccess=!eligible&&blockedStaff.length>0
     const userId=eligible&&editableIds.includes(eligible)?eligible:editableIds.includes(item.owner_id)?item.owner_id:null
     const entry={id:item.id,userId,date:item.scheduled_date,time:item.window_start_at,customer:names.get(item.customer_id),
-      check:item.title,assignee:ctx.byId.get(eligible||'')?.display_name||null,
+      check:item.title,status:item.status,assignee:ctx.byId.get(eligible||'')?.display_name||null,
       people:shiftNames(shiftsAt(eligibleSpans,time).map(shift=>shift.userId)),
       staffWithoutActivityAccess:shiftNames(blockedStaff.map(shift=>shift.userId)),
       reason:eligible?null:noActivityAccess?'Scheduled staff lack Daily Activity access':'No eligible shift at the scheduled time',
