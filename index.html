@@ -43,7 +43,7 @@
 .view-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;min-height:40px;margin:0 0 12px;flex-wrap:wrap}
 #users .users-page-heading{justify-content:flex-end}
 @media(max-width:720px){.workspace{padding:12px}.workspace-toolbar{align-items:flex-start}.workspace-toolbar .tabs{gap:3px}.workspace-toolbar .tabs button{padding:8px 9px}.view-actions{justify-content:flex-start}}
-</style><link rel="stylesheet" href="./board.css"><link rel="stylesheet" href="./work.css?v=requester-search"><link rel="stylesheet" href="./settings.css"><link rel="stylesheet" href="./users.css"><link rel="stylesheet" href="./operations.css?v=role-roster"><link rel="stylesheet" href="./roster-shifts.css"></head><body>
+</style><link rel="stylesheet" href="./board.css"><link rel="stylesheet" href="./work.css?v=requester-search"><link rel="stylesheet" href="./settings.css"><link rel="stylesheet" href="./users.css"><link rel="stylesheet" href="./operations.css?v=roster-extra-icon"><link rel="stylesheet" href="./roster-shifts.css"></head><body>
 <main id="login" class="panel single login"><h1>Talview WorkLog</h1><p class="sub">Sign in to WorkLog Workspace.</p><form id="loginForm"><div class="field"><label>Email</label><input id="loginEmail" type="email" required autocomplete="username"></div><div class="field"><label>Password</label><input id="loginPassword" type="password" required autocomplete="current-password"></div><button id="loginButton">Sign in</button><div id="loginError" class="error"></div></form></main>
 <main id="app" class="shell app-shell" hidden>
 <aside class="sidebar"><div class="sidebar-brand"><span class="worklog-mark" aria-hidden="true">W</span><span>WorkLog</span></div><nav class="sidebar-nav primary-nav" aria-label="WorkLog modules"><button id="trackerNav" class="nav-button primary-nav-button active" onclick="openTracker('ms_tracker')">◉ &nbsp; MS Tracker</button><button id="reportingNav" class="nav-button primary-nav-button" onclick="openTracker('reporting_tracker')">▣ &nbsp; Reporting Tracker</button><button id="dailyNav" class="nav-button primary-nav-button" onclick="openDaily()">☑ &nbsp; Daily Activity</button><button id="rosterNav" class="nav-button primary-nav-button" onclick="openRoster()">▦ &nbsp; Roster</button><button id="usersNav" class="nav-button primary-nav-button" onclick="openUsers()">♙ &nbsp; Users</button></nav><div class="sidebar-spacer"></div><div class="side-user"><b id="sideName"></b><span id="sideRole"></span></div><button class="secondary" onclick="signOut()">Sign out</button></aside>
@@ -250,7 +250,7 @@
 </div></main><div id="toast" class="toast"></div>
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
-import { setupOperations } from './operations.js?v=role-roster';
+import { setupOperations } from './operations.js?v=roster-extra-icon';
 // Set these to the project URL and publishable key from Supabase project settings.
 const SUPABASE_URL = 'https://edlpujkyxjcubvjdcmle.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_pUmRfJJ4gkyL7XA6pXsS1A_N-h5Udu8';

@@ -278,7 +278,8 @@ button.ops-roster-shift.shift-tone:hover { background:var(--fill); border-color:
 .roster-request-row { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
 .roster-request-row p { margin:6px 0 0; }
 .roster-request-buttons { display:flex; gap:6px; align-self:flex-start; }
-.roster-extra-badge { display:block; margin-top:4px; padding:3px 5px; border-radius:6px; color:#5b36a0; background:#eee8fa; font-size:11px; font-weight:700; text-align:center; }
+.roster-shift-extra { position:relative; }
+.roster-extra-icon { position:absolute; inset-block-start:-4px; inset-inline-end:-4px; display:grid; place-items:center; width:14px; height:14px; border-radius:50%; background:#6841a8; color:#fff; box-shadow:0 0 0 1px #fff; font-size:12px; font-weight:700; line-height:1; }
 
 .workspace:has(> #rosterView.active) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; column-gap:8px; }
 .workspace:has(> #rosterView.active) > .workspace-toolbar { grid-area:1 / 2; min-height:0; margin:0; border:0; }

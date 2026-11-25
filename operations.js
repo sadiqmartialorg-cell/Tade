@@ -568,11 +568,13 @@ export function setupOperations({supabase,getUser,getModules,toast,closeUserDraw
       const hours=cell?.kind==='work'&&tone.key!=='empty'?`${rosterClock(cell.start)}–${rosterClock(cell.end)}`:'';
       const label=hours||(tone.key==='empty'?(editable?'Add shift':'—'):shiftLabel(cell,date));
       const description=tone.key==='empty'?'Unscheduled':hours?`${tone.label}, ${hours}${overnight?', Ends next day':''}`:tone.label;
-      const chip=`class="ops-roster-shift shift-tone shift-${tone.key}" title="${esc(description)}"`;
+      const extraDay=extraDays.has(person.id+'|'+date);
+      const accessibleDescription=extraDay?`${description} · Approved extra working day`:description;
+      const chip=`class="ops-roster-shift shift-tone shift-${tone.key}${extraDay?' roster-shift-extra':''}" title="${esc(accessibleDescription)}"`;
       const marker=overnight?'<small class="roster-overnight" aria-hidden="true">+1</small>':'';
-      const extra=extraDays.has(person.id+'|'+date)?'<span class="roster-extra-badge" title="Approved extra working day">Extra working day</span>':'';
-      const readOnly=`<span ${chip}><span aria-hidden="true">${esc(label)}</span>${marker}<span class="sr-only">${esc(description)}</span></span>`;
-      return (editable?`<button type="button" ${chip} aria-label="${esc(`${person.display_name}, ${date}, ${description}${cell?'':' · Add shift'}`)}" onclick="openRosterEditor('${person.id}','${date}')">${esc(label)}${marker}</button>`:readOnly)+extra;
+      const extra=extraDay?'<span class="roster-extra-icon" title="Approved extra working day" aria-hidden="true">+</span>':'';
+      const readOnly=`<span ${chip}><span aria-hidden="true">${esc(label)}</span>${marker}${extra}<span class="sr-only">${esc(accessibleDescription)}</span></span>`;
+      return editable?`<button type="button" ${chip} aria-label="${esc(`${person.display_name}, ${date}, ${accessibleDescription}${cell?'':' · Add shift'}`)}" onclick="openRosterEditor('${person.id}','${date}')">${esc(label)}${marker}${extra}</button>`:readOnly;
     }
     if(mine){
       grid.innerHTML=`<ul class="roster-personal-week" aria-label="My shifts">${dates.map(date=>`<li class="${date===todayDate?'ops-roster-today':''}">${dayHeading(date)}${shift(people[0],date)}</li>`).join('')}</ul>`;
