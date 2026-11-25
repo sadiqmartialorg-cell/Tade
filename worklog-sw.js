@@ -9,11 +9,12 @@ self.addEventListener('push',event=>{
   const dueAt=Date.parse(data.deadline);
   const deadline=Number.isFinite(dueAt)?`Due ${reminderTime.format(dueAt)} IST`:'';
   const body=[data.body,deadline].filter(Boolean).join('\n');
-  const target=data.target==='roster'?'roster':'daily_activity';
+  const target=['roster','roster_extra'].includes(data.target)?data.target:'daily_activity';
+  const openLabel={roster:'View roster',roster_extra:'View extra days',daily_activity:'Open activity'}[target];
   event.waitUntil((async()=>{
     await self.registration.showNotification(title,{
       body,icon:'/worklog-notification.png',tag:data.id||undefined,requireInteraction:urgent,
-      actions:[{action:'open',title:target==='roster'?'View roster':'Open activity'}],data:{target},
+      actions:[{action:'open',title:openLabel}],data:{target},
     });
     const clients=await self.clients.matchAll({type:'window',includeUncontrolled:true});
     for(const client of clients){

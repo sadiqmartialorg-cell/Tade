@@ -13,6 +13,7 @@ const publishable = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SU
 const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SECRET_KEY') ?? ''
 const admin = createClient(projectUrl, secret, { auth:{ persistSession:false, autoRefreshToken:false } })
 const validDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s+'T00:00:00Z'))
+const validReportDate = (s: string) => !s.startsWith('0000') && validDate(s) && new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s
 const uuid = (v: unknown): v is string => typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 const result = async (query: PromiseLike<{data:any,error:any}>) => { const {data,error}=await query; if(error) throw error; return data }
 async function collectRows(query:()=>any) {
@@ -640,6 +641,63 @@ Deno.serve(async request=>{
       await result(admin.rpc('worklog_decide_extension',{p_extension:extension.id,p_actor:id,p_approved:approved}))
       await audit(approved?'extension_approved':'extension_declined',id,item.id,{previous:extension.previous_due_at,proposed:extension.proposed_due_at});if(item.owner_id)await note(item.owner_id,`extension_decision:${extension.id}`,'extension',approved?'Extension approved':'Extension declined',item.title,item.id);return reply({ok:true})
     }
+    if(action==='roster_summary'){
+      requireModule(ctx,'roster')
+      const personId=args.personId||id
+      if(!uuid(personId)||!ctx.scope.has(personId))throw Error('Choose yourself or a person in your reporting team')
+      const people=ctx.people.filter(person=>ctx.scope.has(person.id))
+        .map(person=>({id:person.id,name:person.display_name})).sort((a,b)=>a.name.localeCompare(b.name))
+      let dates:string[]
+      if(Array.isArray(args.dates)){
+        dates=[...new Set<string>(args.dates.map(String))].sort()
+        if(!dates.length||dates.length>31||dates.some(date=>!validReportDate(date)))throw Error('Choose up to 31 valid dates')
+      }else{
+        const from=String(args.from||istDate()),to=String(args.to||from)
+        if(!validReportDate(from)||!validReportDate(to)||to<from||to>addDays(from,30))throw Error('Choose a date range of up to 31 days')
+        dates=Array.from({length:Math.round((Date.parse(to)-Date.parse(from))/86400000)+1},(_,index)=>addDays(from,index))
+      }
+      const [published,extras]=await Promise.all([
+        result(admin.from('worklog_roster_shifts').select('work_date,published_kind,published_start,published_end')
+          .eq('user_id',personId).in('work_date',dates).not('published_kind','is',null)),
+        result(admin.from('worklog_roster_extra_days').select('work_date,reason,decided_at')
+          .eq('requester_id',personId).eq('status','approved').in('work_date',dates)),
+      ])
+      const shiftsByDay=new Map(published.map((shift:any)=>[shift.work_date,shift]))
+      const extrasByDay=new Map(extras.map((extra:any)=>[extra.work_date,extra]))
+      return reply({people,person:people.find(person=>person.id===personId),rows:dates.map(date=>({
+        date,shift:shiftsByDay.get(date)||null,extra:extrasByDay.get(date)||null,
+      }))})
+    }
+    if(action==='roster_extra_list'){
+      const canRequest=ctx.grants.has('roster')
+      const columns='id,requester_id,reviewer_id,work_date,reason,status,created_at,decided_at'
+      const [own,incoming]=await Promise.all([
+        canRequest?result(admin.from('worklog_roster_extra_days').select(columns).eq('requester_id',id).order('created_at',{ascending:false}).limit(30)):[],
+        result(admin.from('worklog_roster_extra_days').select(columns).eq('reviewer_id',id).eq('status','pending')
+          .not('requester_id','is',null).order('created_at').limit(50)),
+      ])
+      const addNames=(rows:any[])=>rows.map(row=>({...row,
+        requester:ctx.byId.get(row.requester_id)?.display_name||'Former team member',
+        reviewer:ctx.byId.get(row.reviewer_id)?.display_name||null,
+      }))
+      return reply({canRequest,manager:ctx.actor.manager_id&&ctx.byId.get(ctx.actor.manager_id)?.active
+        ?ctx.byId.get(ctx.actor.manager_id)?.display_name:null,own:addNames(own),incoming:addNames(incoming)})
+    }
+    if(action==='roster_extra_request'){
+      requireModule(ctx,'roster')
+      const date=String(args.date||''),reason=String(args.reason||'').trim()
+      if(!validReportDate(date))throw Error('Choose a valid work date')
+      if(reason.length>300)throw Error('Keep the note within 300 characters')
+      const {data,error}=await admin.rpc('worklog_request_extra_day',{p_requester:id,p_date:date,p_reason:reason})
+      if(error)throw Error(error.message)
+      return reply({id:data.id})
+    }
+    if(action==='roster_extra_decide'){
+      if(!uuid(args.requestId)||typeof args.approved!=='boolean')throw Error('Choose a valid request and decision')
+      const {error}=await admin.rpc('worklog_decide_extra_day',{p_request:args.requestId,p_reviewer:id,p_approved:args.approved})
+      if(error)throw Error(error.message)
+      return reply({ok:true})
+    }
     if(action==='roster_week'){
       requireModule(ctx,'roster')
       const week=String(args.week||monday(istDate()))
@@ -651,15 +709,17 @@ Deno.serve(async request=>{
       const people=team.canManage ? editableMembers : rosterTeamPeople(ctx,teamId)
         .filter(person=>ctx.tier>2 || person.id!==id)
       const ids=[...new Set(people.map(person=>person.id))]
-      const [published,draft,weekRow]=await Promise.all([
+      const [published,draft,weekRow,extraDays]=await Promise.all([
         ids.length?result(admin.from('worklog_roster_shifts').select('user_id,work_date,published_kind,published_start,published_end').eq('week_start',week).in('user_id',ids)):[],
         editable.length?result(admin.from('worklog_roster_draft_shifts').select('user_id,work_date,kind,start_time,end_time').eq('team_id',teamId).eq('week_start',week).in('user_id',editable)):[],
         result(admin.from('worklog_roster_team_weeks').select('*').eq('team_id',teamId).eq('week_start',week).maybeSingle()),
+        ids.length?result(admin.from('worklog_roster_extra_days').select('requester_id,work_date').eq('status','approved')
+          .in('requester_id',ids).gte('work_date',week).lte('work_date',addDays(week,6))):[],
       ])
       const empty={active_version:0,draft_base_version:0,draft_revision:0,draft_mode:'overlay',published_at:null}
       const safeWeek=weekRow&& !team.canManage?{...empty,active_version:weekRow.active_version,published_at:weekRow.published_at}:weekRow
       return reply({teamId,teams,people,editable,week:safeWeek||empty,
-        publishedRows:published.filter((shift:any)=>shift.published_kind),draftRows:draft,canManage:team.canManage})
+        publishedRows:published.filter((shift:any)=>shift.published_kind),draftRows:draft,extraDays,canManage:team.canManage})
     }
     if(action==='roster_save'){
       const week=String(args.week||''),teamId=String(args.teamId||'')

@@ -281,3 +281,16 @@ button.ops-roster-shift.shift-tone:hover { background:var(--fill); border-color:
   .sidebar .sidebar-brand { display:flex; justify-content:center; padding:0; }
   .sidebar .sidebar-brand span:not(.worklog-mark) { display:none; }
 }
+.roster-report-dialog { width:min(760px,calc(100vw - 24px)); }
+.roster-report-filters, .roster-report-stats { display:flex; flex-wrap:wrap; gap:12px; }
+.roster-report-filters .field { flex:1 1 160px; min-width:0; }
+.roster-report-stats { margin:12px 0; }
+.roster-report-stat { flex:1 1 155px; border:1px solid var(--line); background:var(--bg); border-radius:9px; padding:10px; }
+.roster-report-stat small, .roster-report-table td small { display:block; margin-top:4px; color:var(--muted); overflow-wrap:anywhere; }
+.roster-report-table { max-height:42vh; }
+.roster-report-table thead { position:sticky; top:0; background:#fff; }
+.roster-report-table tbody th { color:var(--ink); font-weight:600; }
+.roster-request-row { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.roster-request-row p { margin:6px 0 0; }
+.roster-request-buttons { display:flex; gap:6px; align-self:flex-start; }
+.roster-extra-badge { display:block; margin-top:4px; padding:3px 5px; border-radius:6px; color:#5b36a0; background:#eee8fa; font-size:11px; font-weight:700; text-align:center; }

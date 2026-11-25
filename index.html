@@ -43,7 +43,7 @@
 .view-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;min-height:40px;margin:0 0 12px;flex-wrap:wrap}
 #users .users-page-heading{justify-content:flex-end}
 @media(max-width:720px){.workspace{padding:12px}.workspace-toolbar{align-items:flex-start}.workspace-toolbar .tabs{gap:3px}.workspace-toolbar .tabs button{padding:8px 9px}.view-actions{justify-content:flex-start}}
-</style><link rel="stylesheet" href="./board.css"><link rel="stylesheet" href="./work.css?v=requester-search"><link rel="stylesheet" href="./settings.css"><link rel="stylesheet" href="./users.css"><link rel="stylesheet" href="./operations.css?v=activity-roster-ui"><link rel="stylesheet" href="./roster-shifts.css"></head><body>
+</style><link rel="stylesheet" href="./board.css"><link rel="stylesheet" href="./work.css?v=requester-search"><link rel="stylesheet" href="./settings.css"><link rel="stylesheet" href="./users.css"><link rel="stylesheet" href="./operations.css?v=roster-reports"><link rel="stylesheet" href="./roster-shifts.css"></head><body>
 <main id="login" class="panel single login"><h1>Talview WorkLog</h1><p class="sub">Sign in to WorkLog Workspace.</p><form id="loginForm"><div class="field"><label>Email</label><input id="loginEmail" type="email" required autocomplete="username"></div><div class="field"><label>Password</label><input id="loginPassword" type="password" required autocomplete="current-password"></div><button id="loginButton">Sign in</button><div id="loginError" class="error"></div></form></main>
 <main id="app" class="shell app-shell" hidden>
 <aside class="sidebar"><div class="sidebar-brand"><span class="worklog-mark" aria-hidden="true">W</span><span>WorkLog</span></div><nav class="sidebar-nav primary-nav" aria-label="WorkLog modules"><button id="trackerNav" class="nav-button primary-nav-button active" onclick="openTracker('ms_tracker')">◉ &nbsp; MS Tracker</button><button id="reportingNav" class="nav-button primary-nav-button" onclick="openTracker('reporting_tracker')">▣ &nbsp; Reporting Tracker</button><button id="dailyNav" class="nav-button primary-nav-button" onclick="openDaily()">☑ &nbsp; Daily Activity</button><button id="rosterNav" class="nav-button primary-nav-button" onclick="openRoster()">▦ &nbsp; Roster</button><button id="usersNav" class="nav-button primary-nav-button" onclick="openUsers()">♙ &nbsp; Users</button></nav><div class="sidebar-spacer"></div><div class="side-user"><b id="sideName"></b><span id="sideRole"></span></div><button class="secondary" onclick="signOut()">Sign out</button></aside>
@@ -154,6 +154,8 @@
 </dialog>
 <section id="rosterView" class="view">
   <div class="view-actions roster-edit-actions ops-module-actions"><div class="ops-roster-actions">
+    <button type="button" class="secondary" id="rosterSummaryButton">Roster summary</button>
+    <button type="button" class="secondary" id="rosterExtraButton">Extra working days</button>
     <button id="editRosterButton" type="button" onclick="beginRosterEdit()" hidden>Edit roster</button>
     <button id="copyRosterButton" type="button" class="secondary" onclick="copyRoster()" hidden>Copy previous week</button>
     <button id="publishRosterButton" type="button" onclick="publishRoster()" hidden>Publish changes</button>
@@ -174,6 +176,33 @@
     <option value="night">Night · 10 PM–8 AM +1 day</option><option value="off">Day off</option><option value="leave">Leave</option><option value="custom">Custom hours</option>
   </select></div><div id="rosterCustomTimes" class="ops-time-row"><label>Start <input id="rosterEditStart" type="time" oninput="updateRosterEndDay()"></label><label>End <input id="rosterEditEnd" type="time" oninput="updateRosterEndDay()"></label><span id="rosterEndDay" class="ops-roster-chip" hidden>+1 day</span></div><div id="rosterShiftPreview" class="ops-shift-preview" aria-live="polite"></div><div class="field"><strong>Apply to selected days</strong><div id="rosterEditDays" class="ops-roster-days"></div></div><p id="rosterEditorError" class="error" role="alert"></p><div class="form-actions"><button type="button" class="secondary" onclick="document.getElementById('rosterEditor').close()">Cancel</button><button id="rosterApplyButton" type="submit">Apply to draft</button></div></form></dialog>
 </section>
+<dialog id="rosterSummaryDialog" class="ops-dialog roster-report-dialog" aria-labelledby="rosterSummaryTitle">
+  <div class="ops-quick-head"><h2 id="rosterSummaryTitle">Roster summary</h2><button type="button" class="secondary" onclick="this.closest('dialog').close()" aria-label="Close roster summary">×</button></div>
+  <form id="rosterSummaryForm">
+    <div class="roster-report-filters">
+      <div class="field"><label for="summaryPerson">Person</label><select id="summaryPerson"></select></div>
+      <div class="field"><label for="summaryPeriod">Period</label><select id="summaryPeriod"><option value="month">Full month</option><option value="day">Single date</option><option value="dates">Specific dates</option></select></div>
+      <div class="field" id="summaryMonthField"><label for="summaryMonth">Month (YYYY-MM)</label><input id="summaryMonth" type="month"></div>
+      <div class="field" id="summaryDateField" hidden><label for="summaryDate">Date</label><input id="summaryDate" type="date"></div>
+    </div>
+    <div class="field" id="summaryDatesField" hidden><label for="summaryDates">Dates (YYYY-MM-DD)</label><textarea id="summaryDates" rows="2" maxlength="400" placeholder="Separate up to 31 dates with spaces, commas, or new lines"></textarea></div>
+    <div class="form-actions"><button id="loadRosterSummary" type="submit">Show summary</button><button type="button" id="downloadRosterSummary" class="secondary" disabled>Download CSV</button></div>
+  </form>
+  <p id="rosterSummaryStatus" class="hint" role="status"></p>
+  <div id="rosterSummaryResults"></div>
+</dialog>
+<dialog id="rosterExtraDialog" class="ops-dialog roster-report-dialog" aria-labelledby="rosterExtraTitle">
+  <div class="ops-quick-head"><h2 id="rosterExtraTitle">Extra working days</h2><button type="button" class="secondary" onclick="this.closest('dialog').close()" aria-label="Close extra working days">×</button></div>
+  <form id="extraDayForm" hidden>
+    <div class="roster-report-filters">
+      <div class="field"><label for="extraDayDate">Work date</label><input id="extraDayDate" type="date" required></div>
+      <div class="field"><label for="extraDayReason">Note (optional)</label><input id="extraDayReason" maxlength="300" placeholder="What work was covered?"></div>
+    </div>
+    <div class="form-actions"><button id="submitExtraDay" type="submit">Request approval</button><span id="extraDayManager" class="hint"></span></div>
+  </form>
+  <p id="extraDayStatus" class="hint" role="status"></p>
+  <div id="extraDayRequests"></div>
+</dialog>
 <section id="inboxView" class="view"><div class="ops-heading"><h2>Inbox</h2><button type="button" class="secondary" onclick="refreshInbox()">Refresh</button></div><div id="inboxList"></div></section>
 <dialog id="opsDialog" class="ops-dialog"><form id="opsDialogForm" method="dialog"><h3 id="opsDialogTitle"></h3><p id="opsDialogHelp" class="sub"></p><div id="opsDialogFields"></div><p id="opsDialogError" class="error" role="alert"></p><div class="form-actions"><button id="opsDialogSubmit" type="submit">Save</button><button type="button" class="secondary" onclick="document.getElementById('opsDialog').close()">Cancel</button></div></form></dialog>
 <section id="users" class="view"><div class="panel users-page-panel">
@@ -210,7 +239,7 @@
 </div></main><div id="toast" class="toast"></div>
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
-import { setupOperations } from './operations.js?v=reminder-content';
+import { setupOperations } from './operations.js?v=roster-reports';
 // Set these to the project URL and publishable key from Supabase project settings.
 const SUPABASE_URL = 'https://edlpujkyxjcubvjdcmle.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_pUmRfJJ4gkyL7XA6pXsS1A_N-h5Udu8';
@@ -837,7 +866,7 @@ function refreshClocks(){if(document.hidden)return;const byId=new Map(sessions.m
 document.addEventListener('visibilitychange',refreshClocks);
 setInterval(refreshClocks,1000);
 Object.assign(window,{openCreateUser,closeUserDrawer,filterUsers,changeUserPage,signOut,addRunner,renameRunner,timerAction,discardRunner,updateManualDuration,useManualBuilder,moveToBuilder,clearBuilder,showView,openTracker,openUsers,loadDashboard,loadDataEntries,changeEntriesPage,applyEntriesFilter,clearEntriesFilter,downloadDataEntries,loadSettings,loadUsers,loadUserTree,loadProfile,loadReportingBoard,changePassword,saveSetting,toggleSetting,deleteSettingTask,filterSettingList,toggleSettingName,startSettingEdit,cancelSettingEdit,saveSettingEdit,createBoardRole,setBoardRank,selectBoardPerson,startTreeDrag,endTreeDrag,allowTreeDrop,allowPersonDrop,allowPaletteDrop,leavePaletteDrop,dropTreeOnGrid,dropTreeOnPerson,dropTreeOnPalette,clickTreeGrid,clickTreePerson,togglePeoplePalette,editUser,closeUserEditor,saveUser,toggleUserActive,deleteUser,arrangeTree,setBoardLayoutMode,adjustBoardZoom,fitBoard,toggleBoardCollapse,detachBoardUser,generatePassword,togglePasswordVisibility,copyInitialPassword,copyCreatedPassword});
-setupOperations({supabase,getUser:()=>user,getModules:()=>modules,toast,closeUserDrawer});
+setupOperations({supabase,getUser:()=>user,getModules:()=>modules,toast,closeUserDrawer,csvCell});
 generatePassword();
 supabase.auth.onAuthStateChange((_event,session)=>{token=session?.access_token||'';if(!session){closeUserDrawer();clearPageCache();user=null;$('app').hidden=true;$('login').hidden=false;}});
 init();
